@@ -62,6 +62,15 @@ jobs:
             reviewer charter — do not tell them anything about this PR's
             title, description, or purpose.
 
+            CRITICAL for this CI environment: this is a non-interactive run.
+            Background agents will NOT re-invoke you when they finish — if you
+            end your turn while reviewers are still running, the process exits
+            and their work is lost. Spawn every reviewer agent with
+            run_in_background: false so the call blocks until its result
+            returns (the two reviewers still run in parallel when both calls
+            are in the same message). Never end your turn before the PR
+            comment is posted.
+
             When findings are merged, post the report as ONE comment on the PR
             with `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`:
             - scope reviewed and both reviewers' coverage
