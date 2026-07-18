@@ -72,11 +72,11 @@ Key decisions (fixed):
 | Milestone | Scope | Status |
 |---|---|---|
 | **M1** | CLI end-to-end: `pnpm cli build "<prompt>"` → copy template → start sandbox container → `codex exec` → quality loop → local URL printed to console. Codex event stream saved as structured logs. **No Discord.** | ✅ done 2026-07-18 (e2e: Japanese RSVP-app request → working app at http://localhost:4100, screenshots, structured logs in var/projects/demo-rsvp/) |
-| **M2** | Discord: `/build` → create thread → stream progress (edit one status message + post screenshots) → post preview URL | 🔨 implemented on `feat/m2-discord` (PR #1), adversarial review applied — e2e on a real server pending |
+| **M2** | Discord: `/build` → create thread → stream progress (edit one status message + post screenshots) → post preview URL | ✅ done 2026-07-18 (e2e on a real server: Japanese book-vote-app request → thread + streamed progress + result embed + preview URL at http://localhost:4101; Codex event log in var/projects/app-415p0v/). `DEPLOY_MODE=cloudflared` (public quick-tunnel URLs) implemented but not yet exercised e2e — verify during M4 demo rehearsal. |
 | **M3** | Edit loop: thread replies become edit tasks → diff summary post → redeploy. 👍×2 ship-approval gate | ⏳ not started |
 | **M4** | Demo polish: error recovery UX, Discord OAuth gate (simple version OK), rehearse demo scenario (community event RSVP app) | ⏳ not started |
 
-**Current position: M1 complete and verified e2e — M2 (Discord integration) is next.**
+**Current position: M2 complete and verified e2e on a real Discord server — M3 (edit loop) is next, after PR #1 merges.**
 Verified so far: workspace installs & typechecks; CLI entry wired; template installs,
 typechecks, `next build` passes, `db:push`/`db:seed` work, screenshot script captures
 the running dev server. `codex` CLI 0.144.5 verified (see packages/sandbox/README.md).
