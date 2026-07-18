@@ -5,8 +5,9 @@
 # reviewer subagents see ONLY the diff, findings are merged/verified, and the
 # result is posted as a single PR comment.
 #
-# Requires the ANTHROPIC_API_KEY repository secret
-# (gh secret set ANTHROPIC_API_KEY). Runs on non-draft PRs when opened,
+# Auth: the CLAUDE_CODE_OAUTH_TOKEN repository secret — a Claude
+# subscription OAuth token minted with `claude setup-token`, then stored via
+# `gh secret set CLAUDE_CODE_OAUTH_TOKEN`. Runs on non-draft PRs when opened,
 # reopened, or marked ready — not on every push (add "synchronize" to types
 # if you want that, at higher cost).
 name: Adversarial Review
@@ -36,7 +37,7 @@ jobs:
 
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
