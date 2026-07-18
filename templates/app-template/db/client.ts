@@ -11,6 +11,11 @@ const databasePath = process.env.DATABASE_PATH ?? './data/app.db';
 mkdirSync(dirname(databasePath), { recursive: true });
 
 const sqlite = new Database(databasePath);
-sqlite.pragma('journal_mode = WAL');
+try {
+  sqlite.pragma('journal_mode = WAL');
+} catch {
+  // Bind-mounted filesystems (Docker on macOS) can transiently reject the WAL
+  // switch with SQLITE_IOERR; the default rollback journal is fine for this app.
+}
 
 export const db = drizzle(sqlite, { schema });
