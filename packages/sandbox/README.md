@@ -17,7 +17,23 @@ Do not re-guess these flags — if the CLI is updated, re-verify before changing
 - `--skip-git-repo-check` — required when the workdir is not a git repo
 - `--ephemeral` — do not persist session files
 - `-o, --output-last-message <FILE>` — write the agent's final message to a file
-- Auth inside the container: `printenv OPENAI_API_KEY | codex login --with-api-key`
+
+## Auth inside sandbox containers (CODEX_AUTH_MODE)
+
+Two modes, selected by `CODEX_AUTH_MODE` (see `.env.example`):
+
+- **`chatgpt` (default — dev/testing):** reuse the host's ChatGPT-subscription login.
+  At container creation, copy the host's `$CODEX_HOME/auth.json` (default
+  `~/.codex/auth.json`) into the container's `CODEX_HOME` (e.g.
+  `docker cp` to `/root/.codex/auth.json`, mode 600). Copy — NOT a bind mount:
+  parallel containers refresh tokens and would race on a shared file; the host
+  file stays canonical and fresh copies go to new containers.
+- **`api-key` (final/production):** run
+  `printenv OPENAI_API_KEY | codex login --with-api-key` at container start
+  (flag verified via `codex login --help`).
+
+The auth file is a secret: never bake it into the image, never copy it into the
+template directory, never log its contents.
 
 Planned invocation inside the sandbox container (implemented at M1):
 

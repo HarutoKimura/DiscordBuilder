@@ -79,9 +79,10 @@ Key decisions (fixed):
 **Current position: scaffold (Step 3) complete and verified — M1 is next.**
 Verified so far: workspace installs & typechecks; CLI entry wired; template installs,
 typechecks, `next build` passes, `db:push`/`db:seed` work, screenshot script captures
-the running dev server. `codex` CLI 0.144.5 verified (see packages/sandbox/README.md);
-local auth is a ChatGPT login (`codex login status`). Sandbox containers authenticate
-with `printenv OPENAI_API_KEY | codex login --with-api-key` instead.
+the running dev server. `codex` CLI 0.144.5 verified (see packages/sandbox/README.md).
+Sandbox codex auth is mode-switched via `CODEX_AUTH_MODE`: `chatgpt` (default,
+dev/testing — host's subscription auth.json copied into containers) and `api-key`
+(final setup). See packages/sandbox/README.md for the exact mechanics.
 
 Out of scope — do not build or propose: payments, multiple templates, fork/marketplace, web dashboard, mobile, multi-server scaling, real billing/user management.
 
