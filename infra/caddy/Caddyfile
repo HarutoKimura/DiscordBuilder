@@ -1,0 +1,5 @@
+# Wildcard reverse proxy for generated apps (M2+/M4).
+# Plan: *.{$BASE_DOMAIN} routes to the matching project's container port, fronted
+# by the Discord-membership gate (MVP: signed link + session cookie is acceptable,
+# but apps stay private by default).
+# Filled in when the deploy package's Caddy target lands.
