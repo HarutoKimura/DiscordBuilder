@@ -117,3 +117,4 @@ Inside `templates/app-template/` (standalone — install with `pnpm install --ig
 6. **Do not change decided architecture.** If implementation genuinely blocks on a decided item, stop and present the reason + an alternative to the user; do not silently deviate.
 7. **`codex` CLI flags must be verified against `codex --help` / official docs before writing sandbox code.** Never guess the CLI surface.
 8. Conversation with the user is in Japanese; code, comments, and all documents (including this file and AGENTS.md) are in English.
+9. **From M2 onward: no direct commits to `main`.** Work on a feature branch (e.g. `feat/m2-discord`) and open a PR to `main` (decided 2026-07-18; M1 and earlier landed directly on `main`). Run the adversarial-review skill on milestone-sized changes before merging.
