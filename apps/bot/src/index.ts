@@ -21,6 +21,7 @@ import { createDeployTarget } from '@discordbuilder/deploy';
 import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
 import { runBuildInThread } from './buildRunner.js';
+import { finishAllProgress } from './progress.js';
 import { truncateText } from './util.js';
 
 const repoRoot = findRepoRoot();
@@ -154,6 +155,16 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[bot] ${signal} received, shutting down…`);
+  // Give quick builds a chance to finish; anything still running after the
+  // grace period gets its status message marked as interrupted so the thread
+  // isn't stuck on "ビルド中…" forever.
+  const drained = await queue.drain(10_000);
+  if (!drained) {
+    console.warn('[bot] builds still in flight — marking their progress as interrupted');
+    await finishAllProgress('⚠️ Bot の再起動によりビルドが中断されました。もう一度 `/build` を実行してください。').catch(
+      () => {},
+    );
+  }
   await deploy.shutdown?.().catch(() => {});
   await client.destroy().catch(() => {});
   process.exit(0);

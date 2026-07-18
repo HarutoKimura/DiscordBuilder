@@ -1,6 +1,6 @@
 // Runs one build for a Discord thread: sandbox → codex → result post.
-import { lstatSync, realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, resolve, sep } from 'node:path';
 import { AttachmentBuilder, EmbedBuilder, type ThreadChannel } from 'discord.js';
 import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shared';
 import { LocalDockerSandbox } from '@discordbuilder/sandbox';
@@ -9,6 +9,7 @@ import { ProgressReporter } from './progress.js';
 import { truncateText } from './util.js';
 
 const MAX_SCREENSHOTS = 4;
+const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024; // Discord's default attachment limit
 
 export interface BuildJob {
   projectId: string;
@@ -131,26 +132,39 @@ async function postResult(
     embed.addFields({ name: 'プレビュー', value: truncateText(url, 200) });
   }
 
-  // BUILD_RESULT.json is written by the sandboxed agent and is UNTRUSTED input:
-  // refuse anything outside the project's app dir. The textual check alone is
-  // not enough — appDir is bind-mounted into the container, so the agent can
-  // plant a symlink whose path is inside appRoot but whose target is any host
-  // file (e.g. .env). Reject non-regular files and re-check containment on the
-  // dereferenced real path.
+  // BUILD_RESULT.json is written by the sandboxed agent and is UNTRUSTED input,
+  // and appDir stays bind-mounted into a container whose generated app keeps
+  // running while we upload. A path could be swapped for a symlink to a host
+  // file between a check and the upload (TOCTOU), so the bytes are read through
+  // ONE fd: O_NOFOLLOW rejects symlinks at open, and the same-inode comparison
+  // proves the fd is the file the in-root path currently resolves to.
   const appRoot = realpathSync(appDir);
-  const files = result.screenshots
-    .map((rel) => resolve(appRoot, rel))
-    .filter((p) => {
-      if (!p.startsWith(appRoot + sep)) return false;
-      try {
-        if (!lstatSync(p).isFile()) return false;
-        return realpathSync(p).startsWith(appRoot + sep);
-      } catch {
-        return false; // missing or unreadable — skip
+  const files: AttachmentBuilder[] = [];
+  for (const rel of result.screenshots) {
+    if (files.length >= MAX_SCREENSHOTS) break;
+    const p = resolve(appRoot, rel);
+    if (!p.startsWith(appRoot + sep)) continue;
+    let fd: number | undefined;
+    try {
+      fd = openSync(p, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      const opened = fstatSync(fd);
+      const real = realpathSync(p);
+      const resolved = statSync(real);
+      if (
+        opened.isFile() &&
+        opened.size <= MAX_SCREENSHOT_BYTES &&
+        real.startsWith(appRoot + sep) &&
+        resolved.dev === opened.dev &&
+        resolved.ino === opened.ino
+      ) {
+        files.push(new AttachmentBuilder(readFileSync(fd), { name: basename(p) }));
       }
-    })
-    .slice(0, MAX_SCREENSHOTS)
-    .map((p) => new AttachmentBuilder(p));
+    } catch {
+      // missing, a symlink (O_NOFOLLOW), or unreadable — skip
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  }
 
   await thread.send({ embeds: [embed], files });
 }

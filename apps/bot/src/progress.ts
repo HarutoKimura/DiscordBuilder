@@ -27,6 +27,15 @@ function prettyCommand(command: string): string {
   return inner;
 }
 
+// Every live reporter, so a bot shutdown can mark in-flight builds as
+// interrupted instead of leaving threads stuck on "ビルド中…" forever.
+const activeReporters = new Set<ProgressReporter>();
+
+/** Finish every in-flight reporter with the given final text (bot shutdown). */
+export async function finishAllProgress(finalText: string): Promise<void> {
+  await Promise.all([...activeReporters].map((reporter) => reporter.finish(finalText)));
+}
+
 export class ProgressReporter {
   private commands = 0;
   private files = 0;
@@ -42,6 +51,7 @@ export class ProgressReporter {
   private editChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly message: Message) {
+    activeReporters.add(this);
     this.timer = setInterval(() => {
       void this.flush();
     }, EDIT_INTERVAL_MS);
@@ -99,6 +109,7 @@ export class ProgressReporter {
 
   /** Stop editing. The final result is posted as a separate message by the runner. */
   async finish(finalText: string): Promise<void> {
+    activeReporters.delete(this);
     this.finished = true;
     clearInterval(this.timer);
     await this.queueEdit(finalText.slice(0, 1900));
