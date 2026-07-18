@@ -36,6 +36,12 @@ jobs:
           fetch-depth: 0
 
       - uses: anthropics/claude-code-action@v1
+        # claude-code-action#676: the token passed via `with:` can be cleared
+        # between the action's prepare and execute phases, so the Claude
+        # subprocess starts unauthenticated and dies on its first API call.
+        # Passing it via env as well keeps the subprocess authenticated.
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
@@ -63,5 +69,6 @@ jobs:
           # Task is the legacy name of the Agent (subagent) tool — allow both
           # so the skill's reviewer fan-out works across CLI versions.
           claude_args: >-
+            --verbose
             --allowedTools
             "Read,Grep,Glob,Write,Agent,Task,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(mkdir:*),Bash(cat:*),Bash(wc:*)"
