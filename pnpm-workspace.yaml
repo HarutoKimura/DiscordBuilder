@@ -1,0 +1,5 @@
+# templates/ is intentionally NOT part of the workspace — the app template is
+# copied into sandbox containers and installed standalone.
+packages:
+  - apps/*
+  - packages/*

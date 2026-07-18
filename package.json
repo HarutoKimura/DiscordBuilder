@@ -1,0 +1,18 @@
+{
+  "name": "discordbuilder",
+  "private": true,
+  "packageManager": "pnpm@9.12.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "cli": "tsx apps/cli/src/index.ts",
+    "dev": "pnpm --filter @discordbuilder/bot dev",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@discordbuilder/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@discordbuilder/deploy": "workspace:*",
+    "@discordbuilder/sandbox": "workspace:*",
+    "@discordbuilder/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22"
+  }
+}
