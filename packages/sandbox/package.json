@@ -10,12 +10,14 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@discordbuilder/shared": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22"
+    "@types/node": "^22",
+    "vitest": "^4.1.10"
   }
 }
