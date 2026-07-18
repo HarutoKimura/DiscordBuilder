@@ -1,0 +1,66 @@
+# Adversarial review on every PR, run by Claude inside GitHub Actions.
+#
+# Reuses the repo's split-context review skill
+# (.claude/skills/adversarial-review) in review-only mode: two independent
+# reviewer subagents see ONLY the diff, findings are merged/verified, and the
+# result is posted as a single PR comment.
+#
+# Requires the ANTHROPIC_API_KEY repository secret
+# (gh secret set ANTHROPIC_API_KEY). Runs on non-draft PRs when opened,
+# reopened, or marked ready — not on every push (add "synchronize" to types
+# if you want that, at higher cost).
+name: Adversarial Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+concurrency:
+  group: adversarial-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history so the base...head diff resolves.
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+            BASE: ${{ github.event.pull_request.base.ref }}
+
+            Run this repository's adversarial-review skill
+            (.claude/skills/adversarial-review/SKILL.md) on this pull request,
+            review-only (never --fix, never push). Scope the diff as
+            origin/${{ github.event.pull_request.base.ref }}...HEAD.
+
+            Follow the skill exactly, including the split-context rule: the
+            reviewer subagents get only the diff path, the repo path, and the
+            reviewer charter — do not tell them anything about this PR's
+            title, description, or purpose.
+
+            When findings are merged, post the report as ONE comment on the PR
+            with `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`:
+            - scope reviewed and both reviewers' coverage
+            - findings ranked most-severe first as
+              `file:line — summary — failure scenario — verdict (CONFIRMED/PLAUSIBLE)`
+            - if nothing survived, say NO_FINDINGS and where the reviewers dug
+            Do not post more than one comment.
+          # Task is the legacy name of the Agent (subagent) tool — allow both
+          # so the skill's reviewer fan-out works across CLI versions.
+          claude_args: >-
+            --allowedTools
+            "Read,Grep,Glob,Write,Agent,Task,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(mkdir:*),Bash(cat:*),Bash(wc:*)"
