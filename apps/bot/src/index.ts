@@ -17,6 +17,7 @@ import {
   type ChatInputCommandInteraction,
 } from 'discord.js';
 import { findRepoRoot, loadConfig, type AppConfig } from '@discordbuilder/shared';
+import { createDeployTarget } from '@discordbuilder/deploy';
 import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
 import { runBuildInThread } from './buildRunner.js';
@@ -39,6 +40,8 @@ function loadBotConfig(): AppConfig {
 const config = loadBotConfig();
 const queue = new BuildQueue();
 const threads = new ThreadStore(repoRoot);
+// One shared instance so per-project tunnels persist across builds.
+const deploy = createDeployTarget(config.deployMode);
 
 const buildCommand = new SlashCommandBuilder()
   .setName('build')
@@ -88,7 +91,7 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
 
   void queue
     .enqueue(projectId, () =>
-      runBuildInThread(repoRoot, config, {
+      runBuildInThread(repoRoot, config, deploy, {
         projectId,
         kind: 'initial',
         prompt,
@@ -146,6 +149,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[bot] ${signal} received, shutting down…`);
+  await deploy.shutdown?.().catch(() => {});
+  await client.destroy().catch(() => {});
+  process.exit(0);
+}
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+console.log(`[bot] deploy mode: ${config.deployMode}`);
 client.login(config.discordBotToken).catch((err: unknown) => {
   console.error('[bot] login failed:', err instanceof Error ? err.message : err);
   console.error('[bot] check DISCORD_BOT_TOKEN in .env');

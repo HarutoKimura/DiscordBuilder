@@ -1,6 +1,14 @@
 export type SandboxMode = 'local-docker';
 
 /**
+ * Where generated apps are served from.
+ * - 'local': localhost:<port> — reachable only on the host (M1 CLI, quick tests).
+ * - 'cloudflared': a Cloudflare quick tunnel per project → public HTTPS URL that
+ *   community members can open. Keeps the SQLite app running in its container.
+ */
+export type DeployMode = 'local' | 'cloudflared';
+
+/**
  * How codex authenticates inside sandbox containers.
  * - 'chatgpt': copy the host's $CODEX_HOME/auth.json (ChatGPT-subscription login)
  *   into the container at creation. Default for development/testing.
@@ -18,6 +26,7 @@ export interface AppConfig {
   /** Model id passed to `codex exec -m`. */
   codexModel: string;
   codexAuthMode: CodexAuthMode;
+  deployMode: DeployMode;
 }
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol';
@@ -26,6 +35,12 @@ function parseCodexAuthMode(value: string | undefined): CodexAuthMode {
   if (value === undefined || value === '' || value === 'chatgpt') return 'chatgpt';
   if (value === 'api-key') return 'api-key';
   throw new Error(`Invalid CODEX_AUTH_MODE: "${value}" (expected "chatgpt" or "api-key")`);
+}
+
+function parseDeployMode(value: string | undefined): DeployMode {
+  if (value === undefined || value === '' || value === 'local') return 'local';
+  if (value === 'cloudflared') return 'cloudflared';
+  throw new Error(`Invalid DEPLOY_MODE: "${value}" (expected "local" or "cloudflared")`);
 }
 
 /**
@@ -47,5 +62,6 @@ export function loadConfig(opts: { requireDiscord?: boolean } = {}): AppConfig {
     sandboxMode: (env.SANDBOX_MODE ?? 'local-docker') as SandboxMode,
     codexModel: env.CODEX_MODEL ?? DEFAULT_CODEX_MODEL,
     codexAuthMode: parseCodexAuthMode(env.CODEX_AUTH_MODE),
+    deployMode: parseDeployMode(env.DEPLOY_MODE),
   };
 }

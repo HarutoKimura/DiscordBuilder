@@ -1,20 +1,14 @@
-/** The single abstraction over "where generated apps get served from". */
-export interface DeployTarget {
-  /** Make the app served on hostPort reachable and return its public URL. */
-  register(projectId: string, hostPort: number): Promise<{ url: string }>;
-  unregister(projectId: string): Promise<void>;
+import { LocalDeployTarget, type DeployTarget } from './target.js';
+import { CloudflaredDeployTarget } from './cloudflared.js';
+
+export type { DeployTarget } from './target.js';
+export { LocalDeployTarget } from './target.js';
+export { CloudflaredDeployTarget } from './cloudflared.js';
+
+export type DeployMode = 'local' | 'cloudflared';
+
+/** Build the deploy target for the configured mode. One instance is shared across
+ * builds so per-project tunnels persist (see CloudflaredDeployTarget). */
+export function createDeployTarget(mode: DeployMode): DeployTarget {
+  return mode === 'cloudflared' ? new CloudflaredDeployTarget() : new LocalDeployTarget();
 }
-
-/** M1: no proxy — the "deploy" is just the localhost URL of the published container port. */
-export class LocalDeployTarget implements DeployTarget {
-  async register(_projectId: string, hostPort: number): Promise<{ url: string }> {
-    return { url: `http://localhost:${hostPort}` };
-  }
-
-  async unregister(_projectId: string): Promise<void> {
-    // Nothing to tear down locally.
-  }
-}
-
-// M2+/M4: CaddyDeployTarget maps <projectId>.<BASE_DOMAIN> on the wildcard proxy
-// (infra/caddy) and fronts it with the Discord-membership gate.

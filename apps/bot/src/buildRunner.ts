@@ -4,7 +4,7 @@ import { resolve, sep } from 'node:path';
 import { AttachmentBuilder, EmbedBuilder, type ThreadChannel } from 'discord.js';
 import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shared';
 import { LocalDockerSandbox } from '@discordbuilder/sandbox';
-import { LocalDeployTarget } from '@discordbuilder/deploy';
+import type { DeployTarget } from '@discordbuilder/deploy';
 import { ProgressReporter } from './progress.js';
 import { truncateText } from './util.js';
 
@@ -18,7 +18,12 @@ export interface BuildJob {
   thread: ThreadChannel;
 }
 
-export async function runBuildInThread(repoRoot: string, config: AppConfig, job: BuildJob): Promise<void> {
+export async function runBuildInThread(
+  repoRoot: string,
+  config: AppConfig,
+  deploy: DeployTarget,
+  job: BuildJob,
+): Promise<void> {
   const status = await job.thread.send('⏳ ビルドを準備しています…');
   const reporter = new ProgressReporter(status);
   const sandbox = new LocalDockerSandbox({
@@ -52,7 +57,18 @@ export async function runBuildInThread(repoRoot: string, config: AppConfig, job:
   }
 
   await reporter.finish(result.status === 'failed' ? '🏗️ ビルドが終了しました(失敗)' : '🏗️ ビルドが完了しました');
-  const { url } = await new LocalDeployTarget().register(job.projectId, handle.hostPort);
+
+  let url: string | undefined;
+  if (result.status !== 'failed') {
+    try {
+      ({ url } = await deploy.register(job.projectId, handle.hostPort));
+    } catch (err) {
+      console.error('[bot] deploy register failed:', err instanceof Error ? err.message : err);
+      await job.thread
+        .send(`⚠️ アプリはできましたが、公開URLの発行に失敗しました: ${truncateText(err instanceof Error ? err.message : String(err), 300)}`)
+        .catch(() => {});
+    }
+  }
 
   try {
     await postResult(job.thread, result, url, handle.appDir);
@@ -63,7 +79,9 @@ export async function runBuildInThread(repoRoot: string, config: AppConfig, job:
     const fallback =
       result.status === 'failed'
         ? '❌ ビルドは失敗しました(結果の表示にも失敗しました)。'
-        : `✅ ビルドは完了しています。プレビュー: ${url}`;
+        : url
+          ? `✅ ビルドは完了しています。プレビュー: ${url}`
+          : '✅ ビルドは完了しています(結果の表示に失敗しました)。';
     await job.thread.send(fallback).catch(() => {});
   }
 
@@ -75,7 +93,7 @@ export async function runBuildInThread(repoRoot: string, config: AppConfig, job:
 async function postResult(
   thread: ThreadChannel,
   result: BuildResultFile,
-  url: string,
+  url: string | undefined,
   appDir: string,
 ): Promise<void> {
   const color = result.status === 'success' ? 0x57f287 : result.status === 'partial' ? 0xfee75c : 0xed4245;
@@ -106,7 +124,7 @@ async function postResult(
       value: 'この変更で、これまでに入力されたデータが削除されました。',
     });
   }
-  if (result.status !== 'failed') {
+  if (result.status !== 'failed' && url) {
     embed.addFields({ name: 'プレビュー', value: truncateText(url, 200) });
   }
 
