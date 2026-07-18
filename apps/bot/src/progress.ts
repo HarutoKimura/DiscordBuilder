@@ -2,14 +2,14 @@
 // place. Edits are throttled to respect Discord rate limits.
 import type { Message } from 'discord.js';
 import type { CodexEvent } from '@discordbuilder/sandbox';
+import { truncateText } from './util.js';
 
 const EDIT_INTERVAL_MS = 2500;
 const MAX_AGENT_TEXT = 350;
 const MAX_COMMAND_TEXT = 120;
 
 function truncate(text: string, max: number): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim();
-  return oneLine.length <= max ? oneLine : oneLine.slice(0, max - 1) + '…';
+  return truncateText(text.replace(/\s+/g, ' ').trim(), max);
 }
 
 function elapsed(startedAt: number): string {

@@ -20,6 +20,7 @@ import { findRepoRoot, loadConfig, type AppConfig } from '@discordbuilder/shared
 import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
 import { runBuildInThread } from './buildRunner.js';
+import { truncateText } from './util.js';
 
 const repoRoot = findRepoRoot();
 const envFile = join(repoRoot, '.env');
@@ -69,12 +70,15 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
   }
 
   const projectId = newProjectId();
-  await interaction.reply(`🏗️ 受け付けました! **「${prompt.slice(0, 200)}」** — スレッドで進捗をお知らせします。`);
+  await interaction.reply(`🏗️ 受け付けました! **「${truncateText(prompt, 200)}」** — スレッドで進捗をお知らせします。`);
   const replyMessage = await interaction.fetchReply();
   const thread = await replyMessage.startThread({
-    name: `🏗️ ${prompt}`.slice(0, 100),
+    name: truncateText(`🏗️ ${prompt}`, 100),
     autoArchiveDuration: 1440,
   });
+  if (queue.busy) {
+    await thread.send('⏳ ほかのビルドが実行中のため、順番待ちに入りました。開始したらここでお知らせします。');
+  }
   threads.set(thread.id, {
     projectId,
     channelId: channel.id,
@@ -98,17 +102,32 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     });
 }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
+  // User text is echoed into bot messages; never let it ping anyone.
+  allowedMentions: { parse: [] },
+});
 
 client.once(Events.ClientReady, async (ready) => {
-  const guildIds = [...ready.guilds.cache.keys()];
-  await registerCommands(guildIds);
-  console.log(`[bot] logged in as ${ready.user.tag}, /build registered in ${guildIds.length} guild(s)`);
+  try {
+    const guildIds = [...ready.guilds.cache.keys()];
+    await registerCommands(guildIds);
+    console.log(`[bot] logged in as ${ready.user.tag}, /build registered in ${guildIds.length} guild(s)`);
+  } catch (err) {
+    console.error(
+      '[bot] command registration failed (does DISCORD_CLIENT_ID match the bot token?):',
+      err instanceof Error ? err.message : err,
+    );
+  }
 });
 
 client.on(Events.GuildCreate, async (guild) => {
-  await registerCommands([guild.id]);
-  console.log(`[bot] joined guild ${guild.name}, /build registered`);
+  try {
+    await registerCommands([guild.id]);
+    console.log(`[bot] joined guild ${guild.name}, /build registered`);
+  } catch (err) {
+    console.error(`[bot] command registration failed for guild ${guild.id}:`, err instanceof Error ? err.message : err);
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -117,6 +136,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await handleBuild(interaction);
   } catch (err) {
     console.error('[bot] /build failed:', err);
+    const content = `❌ ビルドの開始に失敗しました: ${truncateText(err instanceof Error ? err.message : String(err), 300)}\nBotの権限(スレッド作成など)を確認してください。`;
+    try {
+      if (interaction.replied || interaction.deferred) await interaction.followUp({ content, ephemeral: true });
+      else await interaction.reply({ content, ephemeral: true });
+    } catch {
+      // Nothing else we can do — the channel may be gone.
+    }
   }
 });
 

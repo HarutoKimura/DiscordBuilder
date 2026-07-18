@@ -72,7 +72,7 @@ Key decisions (fixed):
 | Milestone | Scope | Status |
 |---|---|---|
 | **M1** | CLI end-to-end: `pnpm cli build "<prompt>"` → copy template → start sandbox container → `codex exec` → quality loop → local URL printed to console. Codex event stream saved as structured logs. **No Discord.** | ✅ done 2026-07-18 (e2e: Japanese RSVP-app request → working app at http://localhost:4100, screenshots, structured logs in var/projects/demo-rsvp/) |
-| **M2** | Discord: `/build` → create thread → stream progress (edit one status message + post screenshots) → post preview URL | ⏳ not started |
+| **M2** | Discord: `/build` → create thread → stream progress (edit one status message + post screenshots) → post preview URL | 🔨 implemented on `feat/m2-discord` (PR #1), adversarial review applied — e2e on a real server pending |
 | **M3** | Edit loop: thread replies become edit tasks → diff summary post → redeploy. 👍×2 ship-approval gate | ⏳ not started |
 | **M4** | Demo polish: error recovery UX, Discord OAuth gate (simple version OK), rehearse demo scenario (community event RSVP app) | ⏳ not started |
 
@@ -94,7 +94,7 @@ Root workspace:
 |---|---|
 | `pnpm install` | Install workspace dependencies |
 | `pnpm cli build "<prompt>"` | M1 end-to-end build without Discord (pipeline lands at M1) |
-| `pnpm dev` | Run the bot + orchestrator locally (M2+, currently a stub) |
+| `pnpm dev` | Run the Discord bot + orchestrator (needs `DISCORD_BOT_TOKEN` / `DISCORD_CLIENT_ID` in `.env`) |
 | `pnpm typecheck` | Typecheck across the workspace |
 | `pnpm test` | Run tests across the workspace (none yet) |
 
