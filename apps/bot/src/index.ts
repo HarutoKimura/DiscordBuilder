@@ -20,7 +20,7 @@ import { findRepoRoot, loadConfig, type AppConfig } from '@discordbuilder/shared
 import { createDeployTarget } from '@discordbuilder/deploy';
 import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
-import { runBuildInThread } from './buildRunner.js';
+import { destroyInterruptedInitialBuilds, runBuildInThread } from './buildRunner.js';
 import { finishAllProgress } from './progress.js';
 import { truncateText } from './util.js';
 
@@ -164,6 +164,9 @@ async function shutdown(signal: string): Promise<void> {
     await finishAllProgress('⚠️ Bot の再起動によりビルドが中断されました。もう一度 `/build` を実行してください。').catch(
       () => {},
     );
+    // Same policy as the in-run failure path: interrupted initial builds get
+    // their container/volumes/port reclaimed instead of leaking on every restart.
+    await destroyInterruptedInitialBuilds();
   }
   await deploy.shutdown?.().catch(() => {});
   await client.destroy().catch(() => {});

@@ -19,6 +19,26 @@ export interface BuildJob {
   thread: ThreadChannel;
 }
 
+interface InFlightBuild {
+  projectId: string;
+  kind: BuildKind;
+  sandbox: LocalDockerSandbox;
+}
+
+// In-flight builds, so bot shutdown can apply the same cleanup policy as the
+// normal failure path: an interrupted INITIAL build's container/volumes are
+// reclaimed (edit builds keep the previous good app running).
+const inFlightBuilds = new Set<InFlightBuild>();
+
+/** Reclaim resources of initial builds interrupted by a bot shutdown. */
+export async function destroyInterruptedInitialBuilds(): Promise<void> {
+  await Promise.all(
+    [...inFlightBuilds]
+      .filter((build) => build.kind === 'initial')
+      .map((build) => build.sandbox.destroyProject(build.projectId).catch(() => {})),
+  );
+}
+
 export async function runBuildInThread(
   repoRoot: string,
   config: AppConfig,
@@ -29,6 +49,7 @@ export async function runBuildInThread(
   const reporter = new ProgressReporter(status);
 
   let sandbox: LocalDockerSandbox | undefined;
+  let inFlight: InFlightBuild | undefined;
   let handle;
   let result: BuildResultFile;
   try {
@@ -41,6 +62,8 @@ export async function runBuildInThread(
       openaiApiKey: config.openaiApiKey || undefined,
       onLog: (message) => reporter.onLog(message),
     });
+    inFlight = { projectId: job.projectId, kind: job.kind, sandbox };
+    inFlightBuilds.add(inFlight);
     handle = await sandbox.create(job.projectId);
     result = await sandbox.runBuild(
       handle,
@@ -48,6 +71,7 @@ export async function runBuildInThread(
       (event) => reporter.onEvent(event),
     );
   } catch (err) {
+    if (inFlight) inFlightBuilds.delete(inFlight);
     await reporter.finish('🏗️ ビルドが中断されました');
     const message = err instanceof Error ? err.message : String(err);
     await job.thread
@@ -59,6 +83,7 @@ export async function runBuildInThread(
     if (job.kind === 'initial') await sandbox?.destroyProject(job.projectId).catch(() => {});
     return;
   }
+  if (inFlight) inFlightBuilds.delete(inFlight);
 
   await reporter.finish(result.status === 'failed' ? '🏗️ ビルドが終了しました(失敗)' : '🏗️ ビルドが完了しました');
 

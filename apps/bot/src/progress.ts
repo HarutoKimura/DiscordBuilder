@@ -107,8 +107,11 @@ export class ProgressReporter {
     await this.queueEdit(this.render());
   }
 
-  /** Stop editing. The final result is posted as a separate message by the runner. */
+  /** Stop editing. The final result is posted as a separate message by the runner.
+   * First caller wins: a natural completion must not be overwritten by the
+   * shutdown path's "interrupted" text racing in via finishAllProgress(). */
   async finish(finalText: string): Promise<void> {
+    if (this.finished) return;
     activeReporters.delete(this);
     this.finished = true;
     clearInterval(this.timer);
