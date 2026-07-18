@@ -50,7 +50,7 @@ After implementing, verify your own work:
 
 1. `pnpm typecheck && pnpm build` — must pass.
 2. Initial build: `pnpm db:push && pnpm db:seed`. Edit task: `pnpm db:push` only — never reseed (see "Seed data & data preservation").
-3. Start the dev server (`pnpm dev`), then run `pnpm screenshot` — this uses Playwright to capture the top page and writes PNGs into `screenshots/`. Capture the primary flow's key screen(s) too if the script supports extra routes.
+3. Start the dev server (`pnpm dev`) — if one is already running on port 3000, reuse it instead of starting another. Then run `pnpm screenshot` — this uses Playwright to capture the top page and writes PNGs into `screenshots/`. Capture the primary flow's key screen(s) too by passing extra routes (e.g. `pnpm screenshot / /results`).
 4. **Look at what you built:** if the build fails, a page errors, or a screenshot shows a broken/empty UI, fix it and repeat.
 
 Hard limit: **3 iterations.** If it still fails after 3, stop and report honestly (see below) — a truthful failure report is worth more than a fake success.

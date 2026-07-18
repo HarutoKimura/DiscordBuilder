@@ -10,7 +10,8 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 RUN npm install -g @openai/codex
 
 # Playwright chromium + OS deps for the template's screenshot quality loop.
-# Keep the playwright version in sync with templates/app-template/package.json.
-RUN npx -y playwright@1.48.2 install --with-deps chromium
+# MUST match the exact playwright version pinned in templates/app-template/package.json
+# (browser builds are per-version; a mismatch breaks screenshots in the container).
+RUN npx -y playwright@1.61.1 install --with-deps chromium
 
 WORKDIR /workspace
