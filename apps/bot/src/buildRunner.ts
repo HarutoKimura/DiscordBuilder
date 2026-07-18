@@ -1,5 +1,5 @@
 // Runs one build for a Discord thread: sandbox → codex → result post.
-import { existsSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { AttachmentBuilder, EmbedBuilder, type ThreadChannel } from 'discord.js';
 import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shared';
@@ -26,17 +26,20 @@ export async function runBuildInThread(
 ): Promise<void> {
   const status = await job.thread.send('⏳ ビルドを準備しています…');
   const reporter = new ProgressReporter(status);
-  const sandbox = new LocalDockerSandbox({
-    repoRoot,
-    codexModel: config.codexModel,
-    codexAuthMode: config.codexAuthMode,
-    openaiApiKey: config.openaiApiKey || undefined,
-    onLog: (message) => reporter.onLog(message),
-  });
 
+  let sandbox: LocalDockerSandbox | undefined;
   let handle;
   let result: BuildResultFile;
   try {
+    // Constructed inside the try so a constructor throw still reaches
+    // reporter.finish() — otherwise the progress interval leaks forever.
+    sandbox = new LocalDockerSandbox({
+      repoRoot,
+      codexModel: config.codexModel,
+      codexAuthMode: config.codexAuthMode,
+      openaiApiKey: config.openaiApiKey || undefined,
+      onLog: (message) => reporter.onLog(message),
+    });
     handle = await sandbox.create(job.projectId);
     result = await sandbox.runBuild(
       handle,
@@ -52,7 +55,7 @@ export async function runBuildInThread(
     // A failed INITIAL build leaves nothing worth keeping — reclaim the
     // container and volumes so retries don't pile up dead resources.
     // (Edit tasks keep theirs: the previous good app is still running.)
-    if (job.kind === 'initial') await sandbox.destroyProject(job.projectId).catch(() => {});
+    if (job.kind === 'initial') await sandbox?.destroyProject(job.projectId).catch(() => {});
     return;
   }
 
@@ -86,7 +89,7 @@ export async function runBuildInThread(
   }
 
   if (result.status === 'failed' && job.kind === 'initial') {
-    await sandbox.destroyProject(job.projectId).catch(() => {});
+    await sandbox?.destroyProject(job.projectId).catch(() => {});
   }
 }
 
@@ -129,12 +132,23 @@ async function postResult(
   }
 
   // BUILD_RESULT.json is written by the sandboxed agent and is UNTRUSTED input:
-  // resolve every screenshot path and refuse anything outside the project's
-  // app dir, or a crafted "../../.." path would upload host files to Discord.
-  const appRoot = resolve(appDir);
+  // refuse anything outside the project's app dir. The textual check alone is
+  // not enough — appDir is bind-mounted into the container, so the agent can
+  // plant a symlink whose path is inside appRoot but whose target is any host
+  // file (e.g. .env). Reject non-regular files and re-check containment on the
+  // dereferenced real path.
+  const appRoot = realpathSync(appDir);
   const files = result.screenshots
     .map((rel) => resolve(appRoot, rel))
-    .filter((p) => p.startsWith(appRoot + sep) && existsSync(p))
+    .filter((p) => {
+      if (!p.startsWith(appRoot + sep)) return false;
+      try {
+        if (!lstatSync(p).isFile()) return false;
+        return realpathSync(p).startsWith(appRoot + sep);
+      } catch {
+        return false; // missing or unreadable — skip
+      }
+    })
     .slice(0, MAX_SCREENSHOTS)
     .map((p) => new AttachmentBuilder(p));
 

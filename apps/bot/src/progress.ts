@@ -37,6 +37,9 @@ export class ProgressReporter {
   private dirty = true;
   private finished = false;
   private readonly timer: NodeJS.Timeout;
+  // Edits are chained so a delayed in-flight flush can never land AFTER the
+  // final finish() edit and leave the message stuck on stale progress text.
+  private editChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly message: Message) {
     this.timer = setInterval(() => {
@@ -77,24 +80,27 @@ export class ProgressReporter {
     return lines.join('\n').slice(0, 1900);
   }
 
+  private queueEdit(text: string): Promise<void> {
+    this.editChain = this.editChain.then(async () => {
+      try {
+        await this.message.edit(text);
+      } catch {
+        // The status message may have been deleted; progress display is best-effort.
+      }
+    });
+    return this.editChain;
+  }
+
   private async flush(): Promise<void> {
     if (!this.dirty || this.finished) return;
     this.dirty = false;
-    try {
-      await this.message.edit(this.render());
-    } catch {
-      // The status message may have been deleted; progress display is best-effort.
-    }
+    await this.queueEdit(this.render());
   }
 
   /** Stop editing. The final result is posted as a separate message by the runner. */
   async finish(finalText: string): Promise<void> {
     this.finished = true;
     clearInterval(this.timer);
-    try {
-      await this.message.edit(finalText.slice(0, 1900));
-    } catch {
-      // best-effort
-    }
+    await this.queueEdit(finalText.slice(0, 1900));
   }
 }

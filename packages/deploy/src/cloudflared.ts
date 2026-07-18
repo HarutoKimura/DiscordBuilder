@@ -52,13 +52,28 @@ export class CloudflaredDeployTarget implements DeployTarget {
     const tunnel = this.tunnels.get(projectId);
     if (!tunnel) return;
     this.tunnels.delete(projectId);
-    tunnel.proc.kill('SIGTERM');
+    await this.stopTunnel(tunnel.proc);
   }
 
   /** Kill every tunnel — call on bot shutdown so no cloudflared processes leak. */
   async shutdown(): Promise<void> {
-    for (const { proc } of this.tunnels.values()) proc.kill('SIGTERM');
+    const procs = [...this.tunnels.values()].map(({ proc }) => proc);
     this.tunnels.clear();
+    await Promise.all(procs.map((proc) => this.stopTunnel(proc)));
+  }
+
+  /** SIGTERM and wait for actual exit — the caller may process.exit() right
+   * after, which would orphan any tunnel that hadn't finished dying yet. */
+  private stopTunnel(proc: ChildProcess): Promise<void> {
+    if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
+    return new Promise((resolve) => {
+      const killTimer = setTimeout(() => proc.kill('SIGKILL'), 5_000);
+      proc.once('exit', () => {
+        clearTimeout(killTimer);
+        resolve();
+      });
+      proc.kill('SIGTERM');
+    });
   }
 
   private waitForUrl(proc: ChildProcess): Promise<string> {

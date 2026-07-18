@@ -54,14 +54,21 @@ export function loadConfig(opts: { requireDiscord?: boolean } = {}): AppConfig {
     if (!value) throw new Error(`Missing required env var: ${key}`);
     return value;
   };
+  const codexAuthMode = parseCodexAuthMode(env.CODEX_AUTH_MODE);
+  const openaiApiKey = env.OPENAI_API_KEY ?? '';
+  // Fail fast at startup: otherwise this misconfiguration only surfaces as a
+  // per-build sandbox-constructor throw after progress reporting has started.
+  if (codexAuthMode === 'api-key' && !openaiApiKey) {
+    throw new Error('CODEX_AUTH_MODE=api-key requires OPENAI_API_KEY to be set');
+  }
   return {
     discordBotToken: opts.requireDiscord ? required('DISCORD_BOT_TOKEN') : (env.DISCORD_BOT_TOKEN ?? ''),
     discordClientId: opts.requireDiscord ? required('DISCORD_CLIENT_ID') : (env.DISCORD_CLIENT_ID ?? ''),
-    openaiApiKey: env.OPENAI_API_KEY ?? '',
+    openaiApiKey,
     baseDomain: env.BASE_DOMAIN ?? 'localhost',
     sandboxMode: (env.SANDBOX_MODE ?? 'local-docker') as SandboxMode,
     codexModel: env.CODEX_MODEL ?? DEFAULT_CODEX_MODEL,
-    codexAuthMode: parseCodexAuthMode(env.CODEX_AUTH_MODE),
+    codexAuthMode,
     deployMode: parseDeployMode(env.DEPLOY_MODE),
   };
 }
