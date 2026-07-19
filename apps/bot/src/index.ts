@@ -41,6 +41,8 @@ function loadBotConfig(): AppConfig {
 const config = loadBotConfig();
 const queue = new BuildQueue();
 const threads = new ThreadStore(repoRoot);
+/** Threads whose build is enqueued but not yet started (see handleBuild). */
+const queuedThreads = new Set<import('discord.js').ThreadChannel>();
 // One shared instance so per-project tunnels persist across builds.
 const deploy = createDeployTarget(config.deployMode);
 
@@ -90,17 +92,23 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     createdAt: new Date().toISOString(),
   });
 
+  // Queued-but-not-started builds have no ProgressReporter yet, so shutdown
+  // cleanup can't see them through the usual channels — track their threads
+  // here until the job actually starts.
+  queuedThreads.add(thread);
   void queue
-    .enqueue(projectId, () =>
-      runBuildInThread(repoRoot, config, deploy, {
+    .enqueue(projectId, () => {
+      queuedThreads.delete(thread);
+      return runBuildInThread(repoRoot, config, deploy, {
         projectId,
         kind: 'initial',
         prompt,
         requestedBy: interaction.user.id,
         thread,
-      }),
-    )
+      });
+    })
     .catch(async (err: unknown) => {
+      queuedThreads.delete(thread);
       const message = err instanceof Error ? err.message : String(err);
       await thread.send(`❌ 予期しないエラー: ${message.slice(0, 500)}`).catch(() => {});
     });
@@ -163,6 +171,15 @@ async function shutdown(signal: string): Promise<void> {
     console.warn('[bot] builds still in flight — marking their progress as interrupted');
     await finishAllProgress('⚠️ Bot の再起動によりビルドが中断されました。もう一度 `/build` を実行してください。').catch(
       () => {},
+    );
+    // Builds still waiting for a queue slot never started a reporter — keep
+    // the promise their "順番待ち" message made and tell them explicitly.
+    await Promise.all(
+      [...queuedThreads].map((thread) =>
+        thread
+          .send('⚠️ Bot の再起動により、順番待ち中のビルドはキャンセルされました。もう一度 `/build` を実行してください。')
+          .catch(() => {}),
+      ),
     );
     // Same policy as the in-run failure path: interrupted initial builds get
     // their container/volumes/port reclaimed instead of leaking on every restart.

@@ -71,7 +71,6 @@ export async function runBuildInThread(
       (event) => reporter.onEvent(event),
     );
   } catch (err) {
-    if (inFlight) inFlightBuilds.delete(inFlight);
     await reporter.finish('🏗️ ビルドが中断されました');
     const message = err instanceof Error ? err.message : String(err);
     await job.thread
@@ -81,9 +80,18 @@ export async function runBuildInThread(
     // container and volumes so retries don't pile up dead resources.
     // (Edit tasks keep theirs: the previous good app is still running.)
     if (job.kind === 'initial') await sandbox?.destroyProject(job.projectId).catch(() => {});
+    // Deregistered only now: the entry must stay visible to shutdown cleanup
+    // for as long as a destroyProject() is still owed.
+    if (inFlight) inFlightBuilds.delete(inFlight);
     return;
   }
-  if (inFlight) inFlightBuilds.delete(inFlight);
+  // A successful (or partial) build owes no cleanup — deregister right away so
+  // a shutdown during result posting can't destroy a healthy new app. A
+  // failed-status initial build still owes the destroyProject() at the end of
+  // this function, so its entry stays until then.
+  if (inFlight && !(result.status === 'failed' && job.kind === 'initial')) {
+    inFlightBuilds.delete(inFlight);
+  }
 
   await reporter.finish(result.status === 'failed' ? '🏗️ ビルドが終了しました(失敗)' : '🏗️ ビルドが完了しました');
 
@@ -117,6 +125,7 @@ export async function runBuildInThread(
   if (result.status === 'failed' && job.kind === 'initial') {
     await sandbox?.destroyProject(job.projectId).catch(() => {});
   }
+  if (inFlight) inFlightBuilds.delete(inFlight);
 }
 
 async function postResult(
