@@ -16,6 +16,14 @@ interface ArmedGate {
 
 const gates = new Map<string, ArmedGate>(); // approval message id → gate
 
+function voteMessageText(remaining: number): string {
+  return (
+    `🗳️ このバージョンでOKなら ${APPROVAL_EMOJI} で投票してください — **${REQUIRED_VOTES}票**で本番公開が承認されます` +
+    `(あと**${remaining}票**。Botの${APPROVAL_EMOJI}はカウントされません)。` +
+    '\n直したいところがあれば、このスレッドに返信するだけで編集できます。'
+  );
+}
+
 interface GateLocation {
   messageId: string;
   thread: ThreadChannel;
@@ -36,10 +44,7 @@ export async function armShipGate(thread: ThreadChannel, projectId: string): Pro
       .catch(() => {});
   }
 
-  const message = await thread.send(
-    `🗳️ このバージョンでOKなら ${APPROVAL_EMOJI} で投票してください — **${REQUIRED_VOTES}票**で本番公開が承認されます。` +
-      '\n直したいところがあれば、このスレッドに返信するだけで編集できます。',
-  );
+  const message = await thread.send(voteMessageText(REQUIRED_VOTES));
   gates.set(message.id, { projectId, approved: false });
   latestGateByProject.set(projectId, { messageId: message.id, thread });
   // Seed the reaction as a one-tap button. The bot's own vote never counts.
@@ -61,7 +66,13 @@ export async function handleShipReaction(
 
   const users = await full.users.fetch();
   const votes = users.filter((u) => !u.bot).size;
-  if (votes < REQUIRED_VOTES) return;
+  if (votes < REQUIRED_VOTES) {
+    // Progress feedback — without it a first vote looks like a dead button
+    // (the bot's seed reaction inflates the visible count but never counts).
+    const message = full.message.partial ? await full.message.fetch() : full.message;
+    await message.edit(voteMessageText(REQUIRED_VOTES - votes)).catch(() => {});
+    return;
+  }
 
   // Re-check AFTER the awaits: two near-simultaneous reactions both pass the
   // early guard, and only this synchronous check-and-set keeps the second
