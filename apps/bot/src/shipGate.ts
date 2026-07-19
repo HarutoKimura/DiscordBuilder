@@ -37,9 +37,9 @@ const latestGateByProject = new Map<string, GateLocation>();
 
 function voteMessageText(remaining: number): string {
   return (
-    `🗳️ このバージョンでOKなら ${APPROVAL_EMOJI} で投票してください — **${requiredVotes}票**で本番公開が承認されます` +
-    `(あと**${remaining}票**。Botの${APPROVAL_EMOJI}はカウントされません)。` +
-    '\n直したいところがあれば、このスレッドに返信するだけで編集できます。'
+    `🗳️ Happy with this version? Vote ${APPROVAL_EMOJI} — **${requiredVotes} vote(s)** approve it for release ` +
+    `(**${remaining} more** needed; the bot's ${APPROVAL_EMOJI} doesn't count).` +
+    '\nWant changes? Just reply in this thread.'
   );
 }
 
@@ -52,7 +52,7 @@ export async function armShipGate(thread: ThreadChannel, projectId: string, url:
     // keep pointing at a gate that no longer exists.
     latestGateByProject.delete(projectId);
     await previous.thread.messages
-      .edit(previous.messageId, '🗳️ ~~この投票は締め切られました~~(新しいビルドが完了したため)')
+      .edit(previous.messageId, '🗳️ ~~This vote is closed~~ (a newer build finished)')
       .catch(() => {});
   }
 
@@ -63,7 +63,7 @@ export async function armShipGate(thread: ThreadChannel, projectId: string, url:
     // The old vote (if any) is already closed — tell the thread rather than
     // leaving it looking like voting silently disappeared.
     await thread
-      .send('⚠️ 投票メッセージの投稿に失敗しました。スレッドに返信して再ビルドすると、投票をやり直せます。')
+      .send('⚠️ Posting the vote message failed. Reply in this thread to rebuild and restart the vote.')
       .catch(() => {});
     throw err;
   }
@@ -116,7 +116,7 @@ export async function handleShipReaction(
   if (channel.isThread()) {
     try {
       await channel.send(
-        `🚀 ${APPROVAL_EMOJI} が ${requiredVotes}票集まりました!このバージョンの本番公開が承認されました 🎉`,
+        `🚀 ${requiredVotes} ${APPROVAL_EMOJI} vote(s) in! This version is approved for release 🎉`,
       );
     } catch (err) {
       // The announcement is the whole point of the gate — leave it armed so a
@@ -130,9 +130,9 @@ export async function handleShipReaction(
   if (latestGateByProject.get(gate.projectId)?.messageId === reaction.message.id) {
     latestGateByProject.delete(gate.projectId);
   }
-  // Rewrite the vote message last: it also repairs any stale "あと1票" text a
+  // Rewrite the vote message last: it also repairs any stale "N more" text a
   // losing concurrent handler may have written moments ago.
-  await message.edit(`🗳️ ~~投票は終了しました~~ — ${requiredVotes}票で承認済みです ✅`).catch(() => {});
+  await message.edit(`🗳️ ~~Voting closed~~ — approved with ${requiredVotes} vote(s) ✅`).catch(() => {});
 
   // Make the approval visible OUTSIDE the thread: the community's vote just
   // "released" an app, so the parent channel gets a launch announcement and
@@ -151,7 +151,7 @@ async function announceLaunch(thread: ThreadChannel, url: string): Promise<void>
     const parent = thread.parent ?? (thread.parentId ? await thread.guild.channels.fetch(thread.parentId) : null);
     if (parent?.isTextBased()) {
       await parent.send(
-        `🎉 コミュニティの承認を得たアプリが公開されました!\n📱 ${url}\n💬 開発の履歴: <#${thread.id}>`,
+        `🎉 A community-approved app just shipped!\n📱 ${url}\n💬 Build history: <#${thread.id}>`,
       );
     }
   } catch (err) {

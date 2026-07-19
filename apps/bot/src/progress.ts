@@ -14,7 +14,7 @@ function truncate(text: string, max: number): string {
 
 function elapsed(startedAt: number): string {
   const seconds = Math.floor((Date.now() - startedAt) / 1000);
-  return seconds < 60 ? `${seconds}秒` : `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 /** Strip codex's shell wrapper for readable progress lines. */
@@ -28,7 +28,7 @@ function prettyCommand(command: string): string {
 }
 
 // Every live reporter, so a bot shutdown can mark in-flight builds as
-// interrupted instead of leaving threads stuck on "ビルド中…" forever.
+// interrupted instead of leaving threads stuck on "Building…" forever.
 const activeReporters = new Set<ProgressReporter>();
 
 /** Finish every in-flight reporter with the given final text (bot shutdown). */
@@ -82,9 +82,9 @@ export class ProgressReporter {
   }
 
   private render(): string {
-    const lines = [`🏗️ **ビルド中…**(${elapsed(this.startedAt)}経過)`];
+    const lines = [`🏗️ **Building…** (${elapsed(this.startedAt)} elapsed)`];
     if (this.setupNote) lines.push(`⚙️ ${this.setupNote}`);
-    lines.push(`📊 コマンド実行 ${this.commands} 回 / ファイル変更 ${this.files} 件`);
+    lines.push(`📊 ${this.commands} command(s) run / ${this.files} file(s) changed`);
     if (this.lastAgentText) lines.push(`💬 ${this.lastAgentText}`);
     if (this.currentCommand) lines.push(`▶️ \`${this.currentCommand}\``);
     return lines.join('\n').slice(0, 1900);

@@ -33,8 +33,8 @@ describe('ProgressReporter', () => {
     await vi.advanceTimersByTimeAsync(EDIT_INTERVAL_MS);
     expect(edit).toHaveBeenCalledTimes(1);
     expect(lastEdit()).toContain('🏗️');
-    expect(lastEdit()).toContain('(2秒経過)');
-    expect(lastEdit()).toContain('コマンド実行 0 回 / ファイル変更 0 件');
+    expect(lastEdit()).toContain('(2s elapsed)');
+    expect(lastEdit()).toContain('0 command(s) run / 0 file(s) changed');
   });
 
   it('skips edits while nothing changed', async () => {
@@ -49,7 +49,7 @@ describe('ProgressReporter', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     reporter.onLog('installing deps');
     await vi.advanceTimersByTimeAsync(EDIT_INTERVAL_MS);
-    expect(lastEdit()).toContain('(1分2秒経過)');
+    expect(lastEdit()).toContain('(1m 2s elapsed)');
   });
 
   it('shows a started command with the shell wrapper stripped', async () => {
@@ -73,7 +73,7 @@ describe('ProgressReporter', () => {
       item: { type: 'command_execution', command: 'pnpm build', exit_code: 0 },
     }));
     await vi.advanceTimersByTimeAsync(EDIT_INTERVAL_MS);
-    expect(lastEdit()).toContain('コマンド実行 1 回');
+    expect(lastEdit()).toContain('1 command(s) run');
     expect(lastEdit()).not.toContain('▶️');
   });
 
@@ -91,7 +91,7 @@ describe('ProgressReporter', () => {
     }));
     reporter.onEvent(event({ type: 'item.completed', item: { type: 'file_change' } }));
     await vi.advanceTimersByTimeAsync(EDIT_INTERVAL_MS);
-    expect(lastEdit()).toContain('ファイル変更 3 件');
+    expect(lastEdit()).toContain('3 file(s) changed');
   });
 
   it('renders the last agent message with whitespace collapsed and truncated', async () => {

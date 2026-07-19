@@ -56,9 +56,9 @@ configureShipGate({ requiredVotes: config.shipApprovalVotes });
 
 const buildCommand = new SlashCommandBuilder()
   .setName('build')
-  .setDescription('みんなのアプリを作ります(Codexが実装します)')
+  .setDescription('Build an app for this community (implemented by Codex)')
   .addStringOption((option) =>
-    option.setName('request').setDescription('作りたいものを普通の言葉で').setRequired(true).setMaxLength(1500),
+    option.setName('request').setDescription('Describe what you want, in plain words').setRequired(true).setMaxLength(1500),
   );
 
 async function registerCommands(guildIds: string[]): Promise<void> {
@@ -79,26 +79,26 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
   const prompt = interaction.options.getString('request', true).trim();
   const channel = interaction.channel;
   if (!interaction.inGuild() || channel?.type !== ChannelType.GuildText) {
-    await interaction.reply({ content: 'このコマンドはサーバーのテキストチャンネルで使ってください。', ephemeral: true });
+    await interaction.reply({ content: 'Use this command in a server text channel.', ephemeral: true });
     return;
   }
   if (!prompt) {
     await interaction.reply({
-      content: '作りたいものを教えてください。例: `/build request: 読書会の本を投票で決めるアプリ`',
+      content: 'Tell me what to build. e.g. `/build request: an app to vote on our next book-club pick`',
       ephemeral: true,
     });
     return;
   }
 
   const projectId = newProjectId();
-  await interaction.reply(`🏗️ 受け付けました! **「${truncateText(prompt, 200)}」** — スレッドで進捗をお知らせします。`);
+  await interaction.reply(`🏗️ On it! **"${truncateText(prompt, 200)}"** — progress will stream in the thread.`);
   const replyMessage = await interaction.fetchReply();
   const thread = await replyMessage.startThread({
     name: truncateText(`🏗️ ${prompt}`, 100),
     autoArchiveDuration: 1440,
   });
   if (queue.busy) {
-    await thread.send('⏳ ほかのビルドが実行中のため、順番待ちに入りました。開始したらここでお知らせします。');
+    await thread.send("⏳ Another build is running, so this one is queued. I'll post here when it starts.");
   }
   threads.set(thread.id, {
     projectId,
@@ -130,7 +130,7 @@ function enqueueBuild(
         // The initial build failed (and unbound this thread) while this edit
         // sat in the queue — the project is gone; don't build a blank slate.
         await thread
-          .send('⚠️ 最初のビルドが失敗したため、この編集リクエストはキャンセルされました。`/build` からやり直してください。')
+          .send('⚠️ The initial build failed, so this edit request was cancelled. Please start over with `/build`.')
           .catch(() => {});
         return;
       }
@@ -145,7 +145,7 @@ function enqueueBuild(
     .catch(async (err: unknown) => {
       queuedJobs.delete(token);
       const message = err instanceof Error ? err.message : String(err);
-      await thread.send(`❌ 予期しないエラー: ${truncateText(message, 500)}`).catch(() => {});
+      await thread.send(`❌ Unexpected error: ${truncateText(message, 500)}`).catch(() => {});
     });
 }
 
@@ -165,8 +165,8 @@ async function handleThreadReply(message: Message): Promise<void> {
   const waiting = queue.busy || queue.hasPending(binding.projectId);
   await channel
     .send(
-      `✏️ 編集リクエストを受け付けました: **「${truncateText(prompt, 200)}」**` +
-        (waiting ? '\n⏳ ほかのビルドが実行中のため、順番待ちに入ります。' : ''),
+      `✏️ Edit request received: **"${truncateText(prompt, 200)}"**` +
+        (waiting ? '\n⏳ Another build is running — this one is queued behind it.' : ''),
     )
     .catch(() => {});
   enqueueBuild(binding.projectId, 'edit', prompt, message.author.id, channel);
@@ -225,7 +225,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await handleBuild(interaction);
   } catch (err) {
     console.error('[bot] /build failed:', err);
-    const content = `❌ ビルドの開始に失敗しました: ${truncateText(err instanceof Error ? err.message : String(err), 300)}\nBotの権限(スレッド作成など)を確認してください。`;
+    const content = `❌ Could not start the build: ${truncateText(err instanceof Error ? err.message : String(err), 300)}\nCheck the bot's permissions (thread creation etc.).`;
     try {
       if (interaction.replied || interaction.deferred) await interaction.followUp({ content, ephemeral: true });
       else await interaction.reply({ content, ephemeral: true });
@@ -242,19 +242,19 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`[bot] ${signal} received, shutting down…`);
   // Give quick builds a chance to finish; anything still running after the
   // grace period gets its status message marked as interrupted so the thread
-  // isn't stuck on "ビルド中…" forever.
+  // isn't stuck on "Building…" forever.
   const drained = await queue.drain(10_000);
   if (!drained) {
     console.warn('[bot] builds still in flight — marking their progress as interrupted');
-    await finishAllProgress('⚠️ Bot の再起動によりビルドが中断されました。もう一度 `/build` を実行してください。').catch(
+    await finishAllProgress('⚠️ The bot restarted and this build was interrupted. Please run `/build` again.').catch(
       () => {},
     );
     // Builds still waiting for a queue slot never started a reporter — keep
-    // the promise their "順番待ち" message made and tell them explicitly.
+    // the promise their "queued" message made and tell them explicitly.
     await Promise.all(
       [...queuedJobs].map(({ thread }) =>
         thread
-          .send('⚠️ Bot の再起動により、順番待ち中のビルドはキャンセルされました。もう一度 `/build` を実行してください。')
+          .send('⚠️ The bot restarted and this queued build was cancelled. Please run `/build` again.')
           .catch(() => {}),
       ),
     );
