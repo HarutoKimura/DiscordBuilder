@@ -30,9 +30,8 @@ async function main(): Promise<void> {
     for (let attempt = 1; attempt <= 2 && !captured; attempt++) {
       try {
         const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
-        const status = response?.status() ?? 0;
-        if (status >= 400) {
-          lastError = `HTTP ${status}`;
+        if (!response || response.status() >= 400) {
+          lastError = response ? `HTTP ${response.status()}` : 'no response from server';
           continue;
         }
         await page.waitForTimeout(1200); // let charts settle (recharts animates ~1.5s from mount)
