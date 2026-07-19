@@ -3,7 +3,7 @@
 // template copy -> sandbox container -> codex exec (streamed) -> BUILD_RESULT -> preview URL
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig, type BuildRequest } from '@discordbuilder/shared';
+import { findRepoRoot, loadConfig, type BuildRequest } from '@discordbuilder/shared';
 import { LocalDockerSandbox, type CodexEvent } from '@discordbuilder/sandbox';
 import { LocalDeployTarget } from '@discordbuilder/deploy';
 
@@ -70,11 +70,7 @@ function renderEvent(event: CodexEvent): void {
 }
 
 async function main(): Promise<void> {
-  const repoRoot = process.cwd();
-  if (!existsSync(join(repoRoot, 'templates', 'app-template'))) {
-    console.error('Run this from the repository root (templates/app-template not found).');
-    process.exit(1);
-  }
+  const repoRoot = findRepoRoot();
   const envFile = join(repoRoot, '.env');
   if (existsSync(envFile)) process.loadEnvFile(envFile);
 

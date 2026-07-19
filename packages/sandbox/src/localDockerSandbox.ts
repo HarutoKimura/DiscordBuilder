@@ -184,15 +184,22 @@ export class LocalDockerSandbox implements SandboxRunner {
     const resultPath = join(handle.appDir, 'BUILD_RESULT.json');
     if (existsSync(resultPath)) {
       try {
+        // Agent-authored file — validate every field, trust nothing.
         const parsed = JSON.parse(readFileSync(resultPath, 'utf8')) as Partial<BuildResultFile>;
+        const strings = (value: unknown): string[] =>
+          Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : [];
         return {
-          status: parsed.status ?? 'partial',
-          summary: parsed.summary ?? '(no summary provided)',
-          changes: parsed.changes ?? [],
-          screenshots: parsed.screenshots ?? [],
-          notes: parsed.notes ?? [],
-          dataReset: parsed.dataReset ?? false,
-          attempts: parsed.attempts ?? 1,
+          status:
+            parsed.status === 'success' || parsed.status === 'partial' || parsed.status === 'failed'
+              ? parsed.status
+              : 'partial',
+          summary:
+            typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary : '(no summary provided)',
+          changes: strings(parsed.changes),
+          screenshots: strings(parsed.screenshots),
+          notes: strings(parsed.notes),
+          dataReset: parsed.dataReset === true,
+          attempts: typeof parsed.attempts === 'number' ? parsed.attempts : 1,
         };
       } catch (err) {
         return synthesizedFailure(`BUILD_RESULT.json is not valid JSON: ${String(err)}`);
@@ -232,7 +239,13 @@ export class LocalDockerSandbox implements SandboxRunner {
   }
 
   async destroy(handle: SandboxHandle): Promise<void> {
-    await docker(['rm', '-f', handle.containerName]);
+    await this.destroyProject(handle.projectId);
+  }
+
+  /** Remove the project's container AND its node_modules/.next volumes. Idempotent. */
+  async destroyProject(projectId: string): Promise<void> {
+    await docker(['rm', '-f', `dbuilder-${projectId}`]);
+    await docker(['volume', 'rm', '-f', `dbuilder-nm-${projectId}`, `dbuilder-next-${projectId}`]);
   }
 }
 

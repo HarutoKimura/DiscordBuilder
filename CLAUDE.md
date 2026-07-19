@@ -72,11 +72,11 @@ Key decisions (fixed):
 | Milestone | Scope | Status |
 |---|---|---|
 | **M1** | CLI end-to-end: `pnpm cli build "<prompt>"` → copy template → start sandbox container → `codex exec` → quality loop → local URL printed to console. Codex event stream saved as structured logs. **No Discord.** | ✅ done 2026-07-18 (e2e: Japanese RSVP-app request → working app at http://localhost:4100, screenshots, structured logs in var/projects/demo-rsvp/) |
-| **M2** | Discord: `/build` → create thread → stream progress (edit one status message + post screenshots) → post preview URL | ⏳ not started |
+| **M2** | Discord: `/build` → create thread → stream progress (edit one status message + post screenshots) → post preview URL | ✅ done 2026-07-18 (e2e on a real server: Japanese book-vote-app request → thread + streamed progress + result embed + preview URL at http://localhost:4101; Codex event log in var/projects/app-415p0v/). `DEPLOY_MODE=cloudflared` (public quick-tunnel URLs) implemented but not yet exercised e2e — verify during M4 demo rehearsal. |
 | **M3** | Edit loop: thread replies become edit tasks → diff summary post → redeploy. 👍×2 ship-approval gate | ⏳ not started |
 | **M4** | Demo polish: error recovery UX, Discord OAuth gate (simple version OK), rehearse demo scenario (community event RSVP app) | ⏳ not started |
 
-**Current position: M1 complete and verified e2e — M2 (Discord integration) is next.**
+**Current position: M2 complete and verified e2e on a real Discord server — M3 (edit loop) is next, after PR #1 merges.**
 Verified so far: workspace installs & typechecks; CLI entry wired; template installs,
 typechecks, `next build` passes, `db:push`/`db:seed` work, screenshot script captures
 the running dev server. `codex` CLI 0.144.5 verified (see packages/sandbox/README.md).
@@ -94,7 +94,7 @@ Root workspace:
 |---|---|
 | `pnpm install` | Install workspace dependencies |
 | `pnpm cli build "<prompt>"` | M1 end-to-end build without Discord (pipeline lands at M1) |
-| `pnpm dev` | Run the bot + orchestrator locally (M2+, currently a stub) |
+| `pnpm dev` | Run the Discord bot + orchestrator (needs `DISCORD_BOT_TOKEN` / `DISCORD_CLIENT_ID` in `.env`) |
 | `pnpm typecheck` | Typecheck across the workspace |
 | `pnpm test` | Run tests across the workspace (none yet) |
 
@@ -117,3 +117,4 @@ Inside `templates/app-template/` (standalone — install with `pnpm install --ig
 6. **Do not change decided architecture.** If implementation genuinely blocks on a decided item, stop and present the reason + an alternative to the user; do not silently deviate.
 7. **`codex` CLI flags must be verified against `codex --help` / official docs before writing sandbox code.** Never guess the CLI surface.
 8. Conversation with the user is in Japanese; code, comments, and all documents (including this file and AGENTS.md) are in English.
+9. **From M2 onward: no direct commits to `main`.** Work on a feature branch (e.g. `feat/m2-discord`) and open a PR to `main` (decided 2026-07-18; M1 and earlier landed directly on `main`). Run the adversarial-review skill on milestone-sized changes before merging.
