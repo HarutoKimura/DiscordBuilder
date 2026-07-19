@@ -17,6 +17,8 @@ export function configureShipGate(opts: { requiredVotes: number }): void {
 
 interface ArmedGate {
   projectId: string;
+  /** Preview URL of the build under vote — announced on approval. */
+  url: string;
   approved: boolean;
 }
 
@@ -41,7 +43,7 @@ function voteMessageText(remaining: number): string {
 }
 
 /** Post the vote message for a successful build and start counting. */
-export async function armShipGate(thread: ThreadChannel, projectId: string): Promise<void> {
+export async function armShipGate(thread: ThreadChannel, projectId: string, url: string): Promise<void> {
   const previous = latestGateByProject.get(projectId);
   if (previous) {
     gates.delete(previous.messageId);
@@ -64,7 +66,7 @@ export async function armShipGate(thread: ThreadChannel, projectId: string): Pro
       .catch(() => {});
     throw err;
   }
-  gates.set(message.id, { projectId, approved: false });
+  gates.set(message.id, { projectId, url, approved: false });
   latestGateByProject.set(projectId, { messageId: message.id, thread });
   // Seed the reaction as a one-tap button. The bot's own vote never counts.
   await message.react(APPROVAL_EMOJI).catch(() => {});
@@ -130,4 +132,28 @@ export async function handleShipReaction(
   // Rewrite the vote message last: it also repairs any stale "あと1票" text a
   // losing concurrent handler may have written moments ago.
   await message.edit(`🗳️ ~~投票は終了しました~~ — ${requiredVotes}票で承認済みです ✅`).catch(() => {});
+
+  // Make the approval visible OUTSIDE the thread: the community's vote just
+  // "released" an app, so the parent channel gets a launch announcement and
+  // the thread gets a ✅ badge. Both best-effort — the in-thread announcement
+  // above is the source of truth.
+  if (channel.isThread()) {
+    await announceLaunch(channel, gate.url);
+  }
+}
+
+async function announceLaunch(thread: ThreadChannel, url: string): Promise<void> {
+  if (!thread.name.startsWith('✅')) {
+    await thread.setName(`✅ ${thread.name}`.slice(0, 100)).catch(() => {});
+  }
+  try {
+    const parent = thread.parent ?? (thread.parentId ? await thread.guild.channels.fetch(thread.parentId) : null);
+    if (parent?.isTextBased()) {
+      await parent.send(
+        `🎉 コミュニティの承認を得たアプリが公開されました!\n📱 ${url}\n💬 開発の履歴: <#${thread.id}>`,
+      );
+    }
+  } catch (err) {
+    console.error('[bot] launch announcement failed:', err instanceof Error ? err.message : err);
+  }
 }
