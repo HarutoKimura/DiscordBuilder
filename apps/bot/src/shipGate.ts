@@ -5,6 +5,7 @@
 // deliberate M3 simplification — the demo runs within one bot lifetime, and a
 // lost gate costs one extra /build, not data.
 import type { MessageReaction, PartialMessageReaction, PartialUser, ThreadChannel, User } from 'discord.js';
+import { truncateText } from './util.js';
 
 const APPROVAL_EMOJI = '👍';
 
@@ -144,7 +145,7 @@ export async function handleShipReaction(
 
 async function announceLaunch(thread: ThreadChannel, url: string): Promise<void> {
   if (!thread.name.startsWith('✅')) {
-    await thread.setName(`✅ ${thread.name}`.slice(0, 100)).catch(() => {});
+    await thread.setName(truncateText(`✅ ${thread.name}`, 100)).catch(() => {});
   }
   try {
     const parent = thread.parent ?? (thread.parentId ? await thread.guild.channels.fetch(thread.parentId) : null);
