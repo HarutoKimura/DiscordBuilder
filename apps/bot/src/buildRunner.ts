@@ -1,7 +1,14 @@
 // Runs one build for a Discord thread: sandbox → codex → result post.
 import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
-import { AttachmentBuilder, EmbedBuilder, type ThreadChannel } from 'discord.js';
+import {
+  ActionRowBuilder,
+  AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  type ThreadChannel,
+} from 'discord.js';
 import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shared';
 import { LocalDockerSandbox } from '@discordbuilder/sandbox';
 import type { DeployTarget } from '@discordbuilder/deploy';
@@ -135,7 +142,7 @@ export async function runBuildInThread(
   // M3 gate: open the 👍 ship vote — but only for a version people can
   // actually open and review (deploy.register may have failed → no URL).
   if (result.status !== 'failed' && url) {
-    await armShipGate(job.thread, job.projectId).catch((err: unknown) => {
+    await armShipGate(job.thread, job.projectId, url).catch((err: unknown) => {
       console.error('[bot] ship gate arm failed:', err instanceof Error ? err.message : err);
     });
   }
@@ -214,5 +221,16 @@ async function postResult(
     }
   }
 
-  await thread.send({ embeds: [embed], files });
+  // A link button beats a raw URL on screen — but Discord only accepts
+  // https:// link buttons reliably, so localhost mode keeps the embed field.
+  const components =
+    url?.startsWith('https://') && result.status !== 'failed'
+      ? [
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('アプリを開く').setURL(url),
+          ),
+        ]
+      : [];
+
+  await thread.send({ embeds: [embed], files, components });
 }
