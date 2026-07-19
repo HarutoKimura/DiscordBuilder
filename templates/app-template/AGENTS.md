@@ -96,7 +96,7 @@ After implementing, verify your own work. Run the steps **in this order** on eve
    ```
 
 5. **`pnpm screenshot / <other routes>`** — captures PNGs into `screenshots/`. It **exits non-zero when a route returns an HTTP error** — treat that as a failed iteration and read `/tmp/dev.log` for the server-side error. Capture every key screen of the primary flow (e.g. `pnpm screenshot / /results`).
-6. **Look at what you built:** if a screenshot shows a broken, empty, or error UI, fix it and repeat from step 1.
+6. **Look at what you built — desktop AND mobile:** `pnpm screenshot` captures `<route>.png` (1280px) and `<route>.mobile.png` (390px) for every route. Inspect both; if either shows a broken, empty, squished, or overflowing UI, fix it and repeat from step 1. A cramped mobile form is a failure even when desktop looks perfect — most community members open the app from the Discord app on a phone.
 
 When you finish, **leave the dev server running** — it serves the preview URL the community opens.
 

@@ -72,6 +72,28 @@ terminal traffic lights if you render a terminal mockup — rare in apps.)
 - Tables/lists: hairline row dividers (`divide-y divide-hairline`), 12–16px
   row padding, header row in `text-xs uppercase tracking-normal text-mute`.
 
+## Responsive & mobile (community members open apps from phones)
+
+- The phone IS the primary viewport: the app is opened from the Discord app.
+  Everything must be comfortable at 390px width — the quality loop captures a
+  `.mobile.png` screenshot per route, and it must look as deliberate as
+  desktop.
+- On small screens: forms stack vertically, inputs and primary buttons go
+  `w-full`, and interactive pills keep a ≥44px touch height (`h-11` for
+  mobile-critical actions).
+- Inputs use `text-base` (16px) — smaller input fonts trigger iOS auto-zoom.
+- No fixed pixel widths on content; the column stays `max-w-2xl w-full mx-auto
+  px-6` (same recipe as Layout — mobile augments it, never replaces it).
+
+## Validation & warnings (monochrome, like everything else)
+
+- Inline rule violations (e.g. a rejected signup) render as an ink-on-white
+  message directly under the offending control:
+  `border-l-2 border-ink pl-3 text-sm` with a `font-medium text-ink` first
+  sentence and `text-body` explanation. No red, no toast libraries.
+- Disabled/full options grey out: `bg-surface-soft text-mute` + a plain-text
+  reason ("Full — 3/3").
+
 ## Do / Don't
 
 - DO keep one clear primary action per view, as a black pill.
