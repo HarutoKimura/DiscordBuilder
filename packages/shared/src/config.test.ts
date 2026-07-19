@@ -12,6 +12,7 @@ const MANAGED_KEYS = [
   'CODEX_MODEL',
   'CODEX_AUTH_MODE',
   'DEPLOY_MODE',
+  'SHIP_APPROVAL_VOTES',
 ] as const;
 
 let saved: Partial<Record<(typeof MANAGED_KEYS)[number], string | undefined>>;
@@ -43,6 +44,7 @@ describe('loadConfig defaults', () => {
       codexModel: 'gpt-5.6-sol',
       codexAuthMode: 'chatgpt',
       deployMode: 'local',
+      shipApprovalVotes: 2,
     });
   });
 
@@ -113,6 +115,23 @@ describe('CODEX_AUTH_MODE parsing', () => {
   it('rejects unknown values', () => {
     process.env.CODEX_AUTH_MODE = 'oauth';
     expect(() => loadConfig()).toThrow('Invalid CODEX_AUTH_MODE: "oauth"');
+  });
+});
+
+describe('SHIP_APPROVAL_VOTES parsing', () => {
+  it.each(['', undefined])('defaults to 2 for %j', (value) => {
+    if (value !== undefined) process.env.SHIP_APPROVAL_VOTES = value;
+    expect(loadConfig().shipApprovalVotes).toBe(2);
+  });
+
+  it('accepts a positive integer', () => {
+    process.env.SHIP_APPROVAL_VOTES = '1';
+    expect(loadConfig().shipApprovalVotes).toBe(1);
+  });
+
+  it.each(['0', '-1', '1.5', 'two'])('rejects %j', (value) => {
+    process.env.SHIP_APPROVAL_VOTES = value;
+    expect(() => loadConfig()).toThrow(`Invalid SHIP_APPROVAL_VOTES: "${value}"`);
   });
 });
 
