@@ -36,12 +36,16 @@ terminal traffic lights if you render a terminal mockup — rare in apps.)
   card title 20px/500, body 16px/400, meta 12–14px. No letter-spacing games,
   no italics, no thin weights.
 
-## Shape rules (two shapes only)
+## Shape rules (three shapes only)
 
 - **Every interactive element is a pill**: `rounded-full` on buttons, inputs,
   selects, tags, filter chips. Height 36–40px, horizontal padding 16–20px.
 - **Cards are 12px**: `rounded-card border border-hairline bg-canvas` with
-  24–32px padding. Nothing else — no medium-radius buttons, no pill cards.
+  24–32px padding.
+- **Inline code/command chips are 6px**: `rounded-chip bg-surface-soft`
+  wrapping `<code>` text — the only non-pill, non-card radius (see the
+  placeholder page for the canonical usage).
+- Nothing else — no medium-radius buttons, no pill cards.
 - **No shadows, no gradients, ever.** Depth = 1px hairline border, or the one
   inverted dark surface.
 
