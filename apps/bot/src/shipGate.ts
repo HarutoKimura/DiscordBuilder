@@ -130,7 +130,7 @@ export async function handleShipReaction(
   if (latestGateByProject.get(gate.projectId)?.messageId === reaction.message.id) {
     latestGateByProject.delete(gate.projectId);
   }
-  // Rewrite the vote message last: it also repairs any stale "あと1票" text a
+  // Rewrite the vote message last: it also repairs any stale "N more" text a
   // losing concurrent handler may have written moments ago.
   await message.edit(`🗳️ ~~Voting closed~~ — approved with ${requiredVotes} vote(s) ✅`).catch(() => {});
 

@@ -28,7 +28,7 @@ function prettyCommand(command: string): string {
 }
 
 // Every live reporter, so a bot shutdown can mark in-flight builds as
-// interrupted instead of leaving threads stuck on "ビルド中…" forever.
+// interrupted instead of leaving threads stuck on "Building…" forever.
 const activeReporters = new Set<ProgressReporter>();
 
 /** Finish every in-flight reporter with the given final text (bot shutdown). */
@@ -84,7 +84,7 @@ export class ProgressReporter {
   private render(): string {
     const lines = [`🏗️ **Building…** (${elapsed(this.startedAt)} elapsed)`];
     if (this.setupNote) lines.push(`⚙️ ${this.setupNote}`);
-    lines.push(`📊 ${this.commands} commands run / ${this.files} files changed`);
+    lines.push(`📊 ${this.commands} command(s) run / ${this.files} file(s) changed`);
     if (this.lastAgentText) lines.push(`💬 ${this.lastAgentText}`);
     if (this.currentCommand) lines.push(`▶️ \`${this.currentCommand}\``);
     return lines.join('\n').slice(0, 1900);

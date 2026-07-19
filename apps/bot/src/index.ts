@@ -242,7 +242,7 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`[bot] ${signal} received, shutting down…`);
   // Give quick builds a chance to finish; anything still running after the
   // grace period gets its status message marked as interrupted so the thread
-  // isn't stuck on "ビルド中…" forever.
+  // isn't stuck on "Building…" forever.
   const drained = await queue.drain(10_000);
   if (!drained) {
     console.warn('[bot] builds still in flight — marking their progress as interrupted');
@@ -250,7 +250,7 @@ async function shutdown(signal: string): Promise<void> {
       () => {},
     );
     // Builds still waiting for a queue slot never started a reporter — keep
-    // the promise their "順番待ち" message made and tell them explicitly.
+    // the promise their "queued" message made and tell them explicitly.
     await Promise.all(
       [...queuedJobs].map(({ thread }) =>
         thread

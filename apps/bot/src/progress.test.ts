@@ -34,7 +34,7 @@ describe('ProgressReporter', () => {
     expect(edit).toHaveBeenCalledTimes(1);
     expect(lastEdit()).toContain('🏗️');
     expect(lastEdit()).toContain('(2s elapsed)');
-    expect(lastEdit()).toContain('0 commands run / 0 files changed');
+    expect(lastEdit()).toContain('0 command(s) run / 0 file(s) changed');
   });
 
   it('skips edits while nothing changed', async () => {
@@ -73,7 +73,7 @@ describe('ProgressReporter', () => {
       item: { type: 'command_execution', command: 'pnpm build', exit_code: 0 },
     }));
     await vi.advanceTimersByTimeAsync(EDIT_INTERVAL_MS);
-    expect(lastEdit()).toContain('1 commands run');
+    expect(lastEdit()).toContain('1 command(s) run');
     expect(lastEdit()).not.toContain('▶️');
   });
 
@@ -91,7 +91,7 @@ describe('ProgressReporter', () => {
     }));
     reporter.onEvent(event({ type: 'item.completed', item: { type: 'file_change' } }));
     await vi.advanceTimersByTimeAsync(EDIT_INTERVAL_MS);
-    expect(lastEdit()).toContain('3 files changed');
+    expect(lastEdit()).toContain('3 file(s) changed');
   });
 
   it('renders the last agent message with whitespace collapsed and truncated', async () => {
