@@ -49,7 +49,7 @@ export async function runBuildInThread(
   config: AppConfig,
   deploy: DeployTarget,
   job: BuildJob,
-): Promise<void> {
+): Promise<BuildResultFile['status']> {
   const status = await job.thread.send('⏳ ビルドを準備しています…');
   const reporter = new ProgressReporter(status);
 
@@ -88,7 +88,7 @@ export async function runBuildInThread(
     // Deregistered only now: the entry must stay visible to shutdown cleanup
     // for as long as a destroyProject() is still owed.
     if (inFlight) inFlightBuilds.delete(inFlight);
-    return;
+    return 'failed';
   }
   // A successful (or partial) build owes no cleanup — deregister right away so
   // a shutdown during result posting can't destroy a healthy new app. A
@@ -138,6 +138,7 @@ export async function runBuildInThread(
       console.error('[bot] ship gate arm failed:', err instanceof Error ? err.message : err);
     });
   }
+  return result.status;
 }
 
 async function postResult(

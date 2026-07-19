@@ -119,9 +119,15 @@ function enqueueBuild(
   // here until the job actually starts.
   queuedThreads.add(thread);
   void queue
-    .enqueue(projectId, () => {
+    .enqueue(projectId, async () => {
       queuedThreads.delete(thread);
-      return runBuildInThread(repoRoot, config, deploy, { projectId, kind, prompt, requestedBy, thread });
+      const status = await runBuildInThread(repoRoot, config, deploy, { projectId, kind, prompt, requestedBy, thread });
+      if (kind === 'initial' && status === 'failed') {
+        // The project's container/volumes were just destroyed — unbind the
+        // thread so later replies can't route "edits" at a project that no
+        // longer exists (the failure message already says to retry /build).
+        threads.delete(thread.id);
+      }
     })
     .catch(async (err: unknown) => {
       queuedThreads.delete(thread);
