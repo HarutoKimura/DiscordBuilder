@@ -76,13 +76,14 @@ terminal traffic lights if you render a terminal mockup — rare in apps.)
 
 - The phone IS the primary viewport: the app is opened from the Discord app.
   Everything must be comfortable at 390px width — the quality loop captures a
-  `-mobile.png` screenshot per route, and it must look as deliberate as
+  `.mobile.png` screenshot per route, and it must look as deliberate as
   desktop.
 - On small screens: forms stack vertically, inputs and primary buttons go
   `w-full`, and interactive pills keep a ≥44px touch height (`h-11` for
   mobile-critical actions).
 - Inputs use `text-base` (16px) — smaller input fonts trigger iOS auto-zoom.
-- No fixed pixel widths on content; the column is `max-w-2xl w-full px-6`.
+- No fixed pixel widths on content; the column stays `max-w-2xl w-full mx-auto
+  px-6` (same recipe as Layout — mobile augments it, never replaces it).
 
 ## Validation & warnings (monochrome, like everything else)
 
