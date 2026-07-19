@@ -65,7 +65,7 @@ If a request cannot be satisfied within these boundaries, implement the closest 
 1. **Read the request carefully.** It comes from a non-developer — infer the obvious missing pieces (a list needs a create form; a vote needs a results view) but do not invent large extra features.
 2. **Schema first, then create the database immediately.** Design `db/schema.ts`, then run `pnpm db:push` (plus `pnpm db:seed` on the initial build) **before** `pnpm build` or the dev server ever runs — building against a database that does not exist yet fails with SQLite I/O errors.
 3. **Implement the UI and logic** under `app/`. Keep it to one clear primary flow. Polished and small beats sprawling and broken. Set the app's real name in the `metadata` export of `app/layout.tsx` — it is the browser-tab title the community sees.
-4. Make it look good with the pre-installed Tailwind setup: sensible spacing, a readable layout, an obvious primary action. The first screenshot is what the community sees.
+4. **Follow `DESIGN.md` (template root) for ALL styling — it is a hard requirement, not inspiration.** Monochrome palette via the preset theme tokens (`bg-canvas`, `text-body`, `border-hairline`, …), pill-shaped interactive elements, 12px hairline-border cards, no shadows/gradients/colored badges, single reading column. The first screenshot is what the community sees, and every app must look like part of the same product family.
 
 ### Seed data & data preservation
 
