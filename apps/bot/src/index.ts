@@ -25,7 +25,7 @@ import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
 import { destroyInterruptedInitialBuilds, runBuildInThread } from './buildRunner.js';
 import { finishAllProgress } from './progress.js';
-import { handleShipReaction } from './shipGate.js';
+import { configureShipGate, handleShipReaction } from './shipGate.js';
 import { truncateText } from './util.js';
 
 const repoRoot = findRepoRoot();
@@ -45,10 +45,14 @@ function loadBotConfig(): AppConfig {
 const config = loadBotConfig();
 const queue = new BuildQueue();
 const threads = new ThreadStore(repoRoot);
-/** Threads whose build is enqueued but not yet started (see handleBuild). */
-const queuedThreads = new Set<ThreadChannel>();
+/** One token per enqueued-but-not-started build (a thread can hold several). */
+interface QueuedJob {
+  thread: ThreadChannel;
+}
+const queuedJobs = new Set<QueuedJob>();
 // One shared instance so per-project tunnels persist across builds.
 const deploy = createDeployTarget(config.deployMode);
+configureShipGate({ requiredVotes: config.shipApprovalVotes });
 
 const buildCommand = new SlashCommandBuilder()
   .setName('build')
@@ -115,12 +119,21 @@ function enqueueBuild(
   thread: ThreadChannel,
 ): void {
   // Queued-but-not-started builds have no ProgressReporter yet, so shutdown
-  // cleanup can't see them through the usual channels — track their threads
-  // here until the job actually starts.
-  queuedThreads.add(thread);
+  // cleanup can't see them through the usual channels — track one token per
+  // job (NOT per thread: a thread can queue an edit behind its initial build).
+  const token: QueuedJob = { thread };
+  queuedJobs.add(token);
   void queue
     .enqueue(projectId, async () => {
-      queuedThreads.delete(thread);
+      queuedJobs.delete(token);
+      if (kind === 'edit' && !threads.get(thread.id)) {
+        // The initial build failed (and unbound this thread) while this edit
+        // sat in the queue — the project is gone; don't build a blank slate.
+        await thread
+          .send('⚠️ 最初のビルドが失敗したため、この編集リクエストはキャンセルされました。`/build` からやり直してください。')
+          .catch(() => {});
+        return;
+      }
       const status = await runBuildInThread(repoRoot, config, deploy, { projectId, kind, prompt, requestedBy, thread });
       if (kind === 'initial' && status === 'failed') {
         // The project's container/volumes were just destroyed — unbind the
@@ -130,7 +143,7 @@ function enqueueBuild(
       }
     })
     .catch(async (err: unknown) => {
-      queuedThreads.delete(thread);
+      queuedJobs.delete(token);
       const message = err instanceof Error ? err.message : String(err);
       await thread.send(`❌ 予期しないエラー: ${truncateText(message, 500)}`).catch(() => {});
     });
@@ -233,7 +246,7 @@ async function shutdown(signal: string): Promise<void> {
     // Builds still waiting for a queue slot never started a reporter — keep
     // the promise their "順番待ち" message made and tell them explicitly.
     await Promise.all(
-      [...queuedThreads].map((thread) =>
+      [...queuedJobs].map(({ thread }) =>
         thread
           .send('⚠️ Bot の再起動により、順番待ち中のビルドはキャンセルされました。もう一度 `/build` を実行してください。')
           .catch(() => {}),

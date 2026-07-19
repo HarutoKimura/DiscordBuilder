@@ -27,6 +27,8 @@ export interface AppConfig {
   codexModel: string;
   codexAuthMode: CodexAuthMode;
   deployMode: DeployMode;
+  /** 👍 votes from distinct humans required to approve a ship (default 2). */
+  shipApprovalVotes: number;
 }
 
 const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol';
@@ -41,6 +43,15 @@ function parseDeployMode(value: string | undefined): DeployMode {
   if (value === undefined || value === '' || value === 'local') return 'local';
   if (value === 'cloudflared') return 'cloudflared';
   throw new Error(`Invalid DEPLOY_MODE: "${value}" (expected "local" or "cloudflared")`);
+}
+
+function parseShipApprovalVotes(value: string | undefined): number {
+  if (value === undefined || value === '') return 2;
+  const votes = Number(value);
+  if (!Number.isInteger(votes) || votes < 1) {
+    throw new Error(`Invalid SHIP_APPROVAL_VOTES: "${value}" (expected an integer >= 1)`);
+  }
+  return votes;
 }
 
 /**
@@ -70,5 +81,6 @@ export function loadConfig(opts: { requireDiscord?: boolean } = {}): AppConfig {
     codexModel: env.CODEX_MODEL ?? DEFAULT_CODEX_MODEL,
     codexAuthMode,
     deployMode: parseDeployMode(env.DEPLOY_MODE),
+    shipApprovalVotes: parseShipApprovalVotes(env.SHIP_APPROVAL_VOTES),
   };
 }

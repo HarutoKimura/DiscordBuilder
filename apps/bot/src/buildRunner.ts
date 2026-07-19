@@ -132,8 +132,9 @@ export async function runBuildInThread(
   }
   if (inFlight) inFlightBuilds.delete(inFlight);
 
-  // M3 gate: a working version is up — open the 👍 ship vote for it.
-  if (result.status !== 'failed') {
+  // M3 gate: open the 👍 ship vote — but only for a version people can
+  // actually open and review (deploy.register may have failed → no URL).
+  if (result.status !== 'failed' && url) {
     await armShipGate(job.thread, job.projectId).catch((err: unknown) => {
       console.error('[bot] ship gate arm failed:', err instanceof Error ? err.message : err);
     });

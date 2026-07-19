@@ -1,5 +1,5 @@
 // M3 ship-approval gate: after a successful build the bot posts a vote message
-// in the thread; 👍 from REQUIRED_VOTES distinct humans approves the ship.
+// in the thread; 👍 from enough distinct humans approves the ship.
 //
 // Gates live in memory only: a bot restart forgets unresolved votes. That is a
 // deliberate M3 simplification — the demo runs within one bot lifetime, and a
@@ -7,7 +7,13 @@
 import type { MessageReaction, PartialMessageReaction, PartialUser, ThreadChannel, User } from 'discord.js';
 
 const APPROVAL_EMOJI = '👍';
-const REQUIRED_VOTES = 2;
+
+// Overridden at startup from SHIP_APPROVAL_VOTES (solo demos set 1).
+let requiredVotes = 2;
+
+export function configureShipGate(opts: { requiredVotes: number }): void {
+  requiredVotes = opts.requiredVotes;
+}
 
 interface ArmedGate {
   projectId: string;
@@ -15,14 +21,6 @@ interface ArmedGate {
 }
 
 const gates = new Map<string, ArmedGate>(); // approval message id → gate
-
-function voteMessageText(remaining: number): string {
-  return (
-    `🗳️ このバージョンでOKなら ${APPROVAL_EMOJI} で投票してください — **${REQUIRED_VOTES}票**で本番公開が承認されます` +
-    `(あと**${remaining}票**。Botの${APPROVAL_EMOJI}はカウントされません)。` +
-    '\n直したいところがあれば、このスレッドに返信するだけで編集できます。'
-  );
-}
 
 interface GateLocation {
   messageId: string;
@@ -34,6 +32,14 @@ interface GateLocation {
 // "approve" a version that has since changed.
 const latestGateByProject = new Map<string, GateLocation>();
 
+function voteMessageText(remaining: number): string {
+  return (
+    `🗳️ このバージョンでOKなら ${APPROVAL_EMOJI} で投票してください — **${requiredVotes}票**で本番公開が承認されます` +
+    `(あと**${remaining}票**。Botの${APPROVAL_EMOJI}はカウントされません)。` +
+    '\n直したいところがあれば、このスレッドに返信するだけで編集できます。'
+  );
+}
+
 /** Post the vote message for a successful build and start counting. */
 export async function armShipGate(thread: ThreadChannel, projectId: string): Promise<void> {
   const previous = latestGateByProject.get(projectId);
@@ -44,7 +50,7 @@ export async function armShipGate(thread: ThreadChannel, projectId: string): Pro
       .catch(() => {});
   }
 
-  const message = await thread.send(voteMessageText(REQUIRED_VOTES));
+  const message = await thread.send(voteMessageText(requiredVotes));
   gates.set(message.id, { projectId, approved: false });
   latestGateByProject.set(projectId, { messageId: message.id, thread });
   // Seed the reaction as a one-tap button. The bot's own vote never counts.
@@ -57,37 +63,45 @@ export async function handleShipReaction(
   user: User | PartialUser,
 ): Promise<void> {
   if (user.bot) return;
+  if (!gates.has(reaction.message.id)) return;
+
+  const full = reaction.partial ? await reaction.fetch() : reaction;
+  if (!full.emoji.name?.startsWith(APPROVAL_EMOJI)) return;
+  const message = full.message.partial ? await full.message.fetch() : full.message;
+
+  // Count unique human voters across ALL 👍 variants: skin-toned thumbs are
+  // distinct reactions with independent user lists, and votes split across
+  // them must still add up to one total.
+  const voters = new Set<string>();
+  for (const variant of message.reactions.cache.values()) {
+    if (!variant.emoji.name?.startsWith(APPROVAL_EMOJI)) continue;
+    const users = await variant.users.fetch();
+    for (const u of users.values()) if (!u.bot) voters.add(u.id);
+  }
+
+  // Re-resolve the gate AFTER every await: a concurrent armShipGate may have
+  // superseded this message (deleting its gate), or a concurrent vote may have
+  // already approved it. The pre-await reference must not be trusted.
   const gate = gates.get(reaction.message.id);
   if (!gate || gate.approved) return;
 
-  const full = reaction.partial ? await reaction.fetch() : reaction;
-  // startsWith: skin-toned 👍 variants are distinct emoji but the same vote.
-  if (!full.emoji.name?.startsWith(APPROVAL_EMOJI)) return;
-
-  const users = await full.users.fetch();
-  const votes = users.filter((u) => !u.bot).size;
-  if (votes < REQUIRED_VOTES) {
+  if (voters.size < requiredVotes) {
     // Progress feedback — without it a first vote looks like a dead button
     // (the bot's seed reaction inflates the visible count but never counts).
-    const message = full.message.partial ? await full.message.fetch() : full.message;
-    await message.edit(voteMessageText(REQUIRED_VOTES - votes)).catch(() => {});
+    await message.edit(voteMessageText(requiredVotes - voters.size)).catch(() => {});
     return;
   }
 
-  // Re-check AFTER the awaits: two near-simultaneous reactions both pass the
-  // early guard, and only this synchronous check-and-set keeps the second
-  // continuation from announcing the approval twice.
-  if (gate.approved) return;
   gate.approved = true;
   gates.delete(reaction.message.id);
   if (latestGateByProject.get(gate.projectId)?.messageId === reaction.message.id) {
     latestGateByProject.delete(gate.projectId);
   }
 
-  const channel = full.message.channel;
+  const channel = message.channel;
   if (channel.isThread()) {
     await channel.send(
-      `🚀 ${APPROVAL_EMOJI} が ${REQUIRED_VOTES}票集まりました!このバージョンの本番公開が承認されました 🎉`,
+      `🚀 ${APPROVAL_EMOJI} が ${requiredVotes}票集まりました!このバージョンの本番公開が承認されました 🎉`,
     );
   }
 }
