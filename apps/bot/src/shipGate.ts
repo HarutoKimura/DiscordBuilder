@@ -45,12 +45,25 @@ export async function armShipGate(thread: ThreadChannel, projectId: string): Pro
   const previous = latestGateByProject.get(projectId);
   if (previous) {
     gates.delete(previous.messageId);
+    // Dropped now, not after the new send: on send failure the map must not
+    // keep pointing at a gate that no longer exists.
+    latestGateByProject.delete(projectId);
     await previous.thread.messages
       .edit(previous.messageId, '🗳️ ~~この投票は締め切られました~~(新しいビルドが完了したため)')
       .catch(() => {});
   }
 
-  const message = await thread.send(voteMessageText(requiredVotes));
+  let message;
+  try {
+    message = await thread.send(voteMessageText(requiredVotes));
+  } catch (err) {
+    // The old vote (if any) is already closed — tell the thread rather than
+    // leaving it looking like voting silently disappeared.
+    await thread
+      .send('⚠️ 投票メッセージの投稿に失敗しました。スレッドに返信して再ビルドすると、投票をやり直せます。')
+      .catch(() => {});
+    throw err;
+  }
   gates.set(message.id, { projectId, approved: false });
   latestGateByProject.set(projectId, { messageId: message.id, thread });
   // Seed the reaction as a one-tap button. The bot's own vote never counts.
@@ -86,6 +99,9 @@ export async function handleShipReaction(
   if (!gate || gate.approved) return;
 
   if (voters.size < requiredVotes) {
+    // A concurrent handler that saw the winning vote may have resolved the
+    // gate while we were fetching voters — don't overwrite its result.
+    if (gate.approved) return;
     // Progress feedback — without it a first vote looks like a dead button
     // (the bot's seed reaction inflates the visible count but never counts).
     await message.edit(voteMessageText(requiredVotes - voters.size)).catch(() => {});
@@ -93,15 +109,25 @@ export async function handleShipReaction(
   }
 
   gate.approved = true;
+  const channel = message.channel;
+  if (channel.isThread()) {
+    try {
+      await channel.send(
+        `🚀 ${APPROVAL_EMOJI} が ${requiredVotes}票集まりました!このバージョンの本番公開が承認されました 🎉`,
+      );
+    } catch (err) {
+      // The announcement is the whole point of the gate — leave it armed so a
+      // later reaction retries, instead of losing the approval silently.
+      gate.approved = false;
+      throw err;
+    }
+  }
+
   gates.delete(reaction.message.id);
   if (latestGateByProject.get(gate.projectId)?.messageId === reaction.message.id) {
     latestGateByProject.delete(gate.projectId);
   }
-
-  const channel = message.channel;
-  if (channel.isThread()) {
-    await channel.send(
-      `🚀 ${APPROVAL_EMOJI} が ${requiredVotes}票集まりました!このバージョンの本番公開が承認されました 🎉`,
-    );
-  }
+  // Rewrite the vote message last: it also repairs any stale "あと1票" text a
+  // losing concurrent handler may have written moments ago.
+  await message.edit(`🗳️ ~~投票は終了しました~~ — ${requiredVotes}票で承認済みです ✅`).catch(() => {});
 }

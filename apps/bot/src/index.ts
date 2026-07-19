@@ -159,10 +159,16 @@ async function handleThreadReply(message: Message): Promise<void> {
   const prompt = message.content.trim();
   if (!prompt) return; // attachment-only or empty messages are not edit tasks
 
-  await channel.send(
-    `✏️ 編集リクエストを受け付けました: **「${truncateText(prompt, 200)}」**` +
-      (queue.busy ? '\n⏳ ほかのビルドが実行中のため、順番待ちに入ります。' : ''),
-  );
+  // The ack is best-effort: a failed send must not swallow the edit request
+  // itself. Per-project chaining counts as "waiting" too, not just the global
+  // concurrency cap.
+  const waiting = queue.busy || queue.hasPending(binding.projectId);
+  await channel
+    .send(
+      `✏️ 編集リクエストを受け付けました: **「${truncateText(prompt, 200)}」**` +
+        (waiting ? '\n⏳ ほかのビルドが実行中のため、順番待ちに入ります。' : ''),
+    )
+    .catch(() => {});
   enqueueBuild(binding.projectId, 'edit', prompt, message.author.id, channel);
 }
 
