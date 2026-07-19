@@ -1,9 +1,9 @@
-// M2 entry point: discord.js v14 bot + orchestrator.
-// /build <request> → thread → streamed progress (one edited message) → result + preview URL.
+// Bot entry point: discord.js v14 bot + orchestrator.
+// M2: /build <request> → thread → streamed progress (one edited message) → result + preview URL.
+// M3: thread replies become edit tasks; 👍×2 on the vote message approves the ship.
 //
-// Intents: Guilds only for M2. M3 adds GuildMessages + MessageContent (thread
-// replies as edit tasks — requires the MESSAGE CONTENT toggle in the dev portal)
-// and GuildMessageReactions (👍×2 ship gate).
+// Intents: MessageContent is privileged — it must be enabled under
+// "Privileged Gateway Intents" in the Discord developer portal, or login fails.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -11,10 +11,13 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  Partials,
   REST,
   Routes,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
+  type Message,
+  type ThreadChannel,
 } from 'discord.js';
 import { findRepoRoot, loadConfig, type AppConfig } from '@discordbuilder/shared';
 import { createDeployTarget } from '@discordbuilder/deploy';
@@ -22,6 +25,7 @@ import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
 import { destroyInterruptedInitialBuilds, runBuildInThread } from './buildRunner.js';
 import { finishAllProgress } from './progress.js';
+import { handleShipReaction } from './shipGate.js';
 import { truncateText } from './util.js';
 
 const repoRoot = findRepoRoot();
@@ -42,7 +46,7 @@ const config = loadBotConfig();
 const queue = new BuildQueue();
 const threads = new ThreadStore(repoRoot);
 /** Threads whose build is enqueued but not yet started (see handleBuild). */
-const queuedThreads = new Set<import('discord.js').ThreadChannel>();
+const queuedThreads = new Set<ThreadChannel>();
 // One shared instance so per-project tunnels persist across builds.
 const deploy = createDeployTarget(config.deployMode);
 
@@ -99,6 +103,17 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     createdAt: new Date().toISOString(),
   });
 
+  enqueueBuild(projectId, 'initial', prompt, interaction.user.id, thread);
+}
+
+/** Shared tail of both entry points (/build and thread replies). */
+function enqueueBuild(
+  projectId: string,
+  kind: 'initial' | 'edit',
+  prompt: string,
+  requestedBy: string,
+  thread: ThreadChannel,
+): void {
   // Queued-but-not-started builds have no ProgressReporter yet, so shutdown
   // cleanup can't see them through the usual channels — track their threads
   // here until the job actually starts.
@@ -106,13 +121,7 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
   void queue
     .enqueue(projectId, () => {
       queuedThreads.delete(thread);
-      return runBuildInThread(repoRoot, config, deploy, {
-        projectId,
-        kind: 'initial',
-        prompt,
-        requestedBy: interaction.user.id,
-        thread,
-      });
+      return runBuildInThread(repoRoot, config, deploy, { projectId, kind, prompt, requestedBy, thread });
     })
     .catch(async (err: unknown) => {
       queuedThreads.delete(thread);
@@ -121,10 +130,46 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     });
 }
 
+/** M3: any human message in a bound thread is an edit request. */
+async function handleThreadReply(message: Message): Promise<void> {
+  if (message.author.bot) return;
+  const channel = message.channel;
+  if (!channel.isThread()) return;
+  const binding = threads.get(channel.id);
+  if (!binding) return;
+  const prompt = message.content.trim();
+  if (!prompt) return; // attachment-only or empty messages are not edit tasks
+
+  await channel.send(
+    `✏️ 編集リクエストを受け付けました: **「${truncateText(prompt, 200)}」**` +
+      (queue.busy ? '\n⏳ ほかのビルドが実行中のため、順番待ちに入ります。' : ''),
+  );
+  enqueueBuild(binding.projectId, 'edit', prompt, message.author.id, channel);
+}
+
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent,
+  ],
+  // Reaction events can arrive for uncached messages as partials.
+  partials: [Partials.Message, Partials.Reaction, Partials.Channel],
   // User text is echoed into bot messages; never let it ping anyone.
   allowedMentions: { parse: [] },
+});
+
+client.on(Events.MessageCreate, (message) => {
+  void handleThreadReply(message).catch((err: unknown) => {
+    console.error('[bot] thread reply handling failed:', err instanceof Error ? err.message : err);
+  });
+});
+
+client.on(Events.MessageReactionAdd, (reaction, user) => {
+  void handleShipReaction(reaction, user).catch((err: unknown) => {
+    console.error('[bot] ship reaction handling failed:', err instanceof Error ? err.message : err);
+  });
 });
 
 client.once(Events.ClientReady, async (ready) => {

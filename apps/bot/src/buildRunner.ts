@@ -6,6 +6,7 @@ import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shar
 import { LocalDockerSandbox } from '@discordbuilder/sandbox';
 import type { DeployTarget } from '@discordbuilder/deploy';
 import { ProgressReporter } from './progress.js';
+import { armShipGate } from './shipGate.js';
 import { truncateText } from './util.js';
 
 const MAX_SCREENSHOTS = 4;
@@ -130,6 +131,13 @@ export async function runBuildInThread(
     await sandbox?.destroyProject(job.projectId).catch(() => {});
   }
   if (inFlight) inFlightBuilds.delete(inFlight);
+
+  // M3 gate: a working version is up — open the 👍 ship vote for it.
+  if (result.status !== 'failed') {
+    await armShipGate(job.thread, job.projectId).catch((err: unknown) => {
+      console.error('[bot] ship gate arm failed:', err instanceof Error ? err.message : err);
+    });
+  }
 }
 
 async function postResult(
