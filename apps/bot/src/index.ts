@@ -74,6 +74,13 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     await interaction.reply({ content: 'このコマンドはサーバーのテキストチャンネルで使ってください。', ephemeral: true });
     return;
   }
+  if (!prompt) {
+    await interaction.reply({
+      content: '作りたいものを教えてください。例: `/build request: 読書会の本を投票で決めるアプリ`',
+      ephemeral: true,
+    });
+    return;
+  }
 
   const projectId = newProjectId();
   await interaction.reply(`🏗️ 受け付けました! **「${truncateText(prompt, 200)}」** — スレッドで進捗をお知らせします。`);
@@ -110,7 +117,7 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     .catch(async (err: unknown) => {
       queuedThreads.delete(thread);
       const message = err instanceof Error ? err.message : String(err);
-      await thread.send(`❌ 予期しないエラー: ${message.slice(0, 500)}`).catch(() => {});
+      await thread.send(`❌ 予期しないエラー: ${truncateText(message, 500)}`).catch(() => {});
     });
 }
 

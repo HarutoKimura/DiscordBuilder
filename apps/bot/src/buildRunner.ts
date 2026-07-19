@@ -10,6 +10,10 @@ import { truncateText } from './util.js';
 
 const MAX_SCREENSHOTS = 4;
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024; // Discord's default attachment limit
+// The screenshots array is agent-authored and uncapped upstream; bound how many
+// entries we even LOOK at, or a huge array of invalid paths would grind the
+// single bot process through that much synchronous fs work.
+const MAX_SCREENSHOT_CANDIDATES = 16;
 
 export interface BuildJob {
   projectId: string;
@@ -174,7 +178,7 @@ async function postResult(
   // proves the fd is the file the in-root path currently resolves to.
   const appRoot = realpathSync(appDir);
   const files: AttachmentBuilder[] = [];
-  for (const rel of result.screenshots) {
+  for (const rel of result.screenshots.slice(0, MAX_SCREENSHOT_CANDIDATES)) {
     if (files.length >= MAX_SCREENSHOTS) break;
     const p = resolve(appRoot, rel);
     if (!p.startsWith(appRoot + sep)) continue;
