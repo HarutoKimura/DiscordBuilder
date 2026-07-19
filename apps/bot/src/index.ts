@@ -20,7 +20,8 @@ import { findRepoRoot, loadConfig, type AppConfig } from '@discordbuilder/shared
 import { createDeployTarget } from '@discordbuilder/deploy';
 import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
-import { runBuildInThread } from './buildRunner.js';
+import { destroyInterruptedInitialBuilds, runBuildInThread } from './buildRunner.js';
+import { finishAllProgress } from './progress.js';
 import { truncateText } from './util.js';
 
 const repoRoot = findRepoRoot();
@@ -40,6 +41,8 @@ function loadBotConfig(): AppConfig {
 const config = loadBotConfig();
 const queue = new BuildQueue();
 const threads = new ThreadStore(repoRoot);
+/** Threads whose build is enqueued but not yet started (see handleBuild). */
+const queuedThreads = new Set<import('discord.js').ThreadChannel>();
 // One shared instance so per-project tunnels persist across builds.
 const deploy = createDeployTarget(config.deployMode);
 
@@ -71,6 +74,13 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     await interaction.reply({ content: 'このコマンドはサーバーのテキストチャンネルで使ってください。', ephemeral: true });
     return;
   }
+  if (!prompt) {
+    await interaction.reply({
+      content: '作りたいものを教えてください。例: `/build request: 読書会の本を投票で決めるアプリ`',
+      ephemeral: true,
+    });
+    return;
+  }
 
   const projectId = newProjectId();
   await interaction.reply(`🏗️ 受け付けました! **「${truncateText(prompt, 200)}」** — スレッドで進捗をお知らせします。`);
@@ -89,19 +99,25 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     createdAt: new Date().toISOString(),
   });
 
+  // Queued-but-not-started builds have no ProgressReporter yet, so shutdown
+  // cleanup can't see them through the usual channels — track their threads
+  // here until the job actually starts.
+  queuedThreads.add(thread);
   void queue
-    .enqueue(projectId, () =>
-      runBuildInThread(repoRoot, config, deploy, {
+    .enqueue(projectId, () => {
+      queuedThreads.delete(thread);
+      return runBuildInThread(repoRoot, config, deploy, {
         projectId,
         kind: 'initial',
         prompt,
         requestedBy: interaction.user.id,
         thread,
-      }),
-    )
+      });
+    })
     .catch(async (err: unknown) => {
+      queuedThreads.delete(thread);
       const message = err instanceof Error ? err.message : String(err);
-      await thread.send(`❌ 予期しないエラー: ${message.slice(0, 500)}`).catch(() => {});
+      await thread.send(`❌ 予期しないエラー: ${truncateText(message, 500)}`).catch(() => {});
     });
 }
 
@@ -154,6 +170,28 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[bot] ${signal} received, shutting down…`);
+  // Give quick builds a chance to finish; anything still running after the
+  // grace period gets its status message marked as interrupted so the thread
+  // isn't stuck on "ビルド中…" forever.
+  const drained = await queue.drain(10_000);
+  if (!drained) {
+    console.warn('[bot] builds still in flight — marking their progress as interrupted');
+    await finishAllProgress('⚠️ Bot の再起動によりビルドが中断されました。もう一度 `/build` を実行してください。').catch(
+      () => {},
+    );
+    // Builds still waiting for a queue slot never started a reporter — keep
+    // the promise their "順番待ち" message made and tell them explicitly.
+    await Promise.all(
+      [...queuedThreads].map((thread) =>
+        thread
+          .send('⚠️ Bot の再起動により、順番待ち中のビルドはキャンセルされました。もう一度 `/build` を実行してください。')
+          .catch(() => {}),
+      ),
+    );
+    // Same policy as the in-run failure path: interrupted initial builds get
+    // their container/volumes/port reclaimed instead of leaking on every restart.
+    await destroyInterruptedInitialBuilds();
+  }
   await deploy.shutdown?.().catch(() => {});
   await client.destroy().catch(() => {});
   process.exit(0);

@@ -23,6 +23,10 @@ const STARTUP_TIMEOUT_MS = 30_000;
  */
 export class CloudflaredDeployTarget implements DeployTarget {
   private readonly tunnels = new Map<string, Tunnel>();
+  // Every spawned child, including ones still in waitForUrl() and not yet in
+  // `tunnels` — shutdown() must be able to kill those too, or a SIGTERM racing
+  // a spawn orphans the process.
+  private readonly liveProcs = new Set<ChildProcess>();
 
   async register(projectId: string, hostPort: number): Promise<{ url: string }> {
     const existing = this.tunnels.get(projectId);
@@ -35,6 +39,8 @@ export class CloudflaredDeployTarget implements DeployTarget {
     const proc = spawn('cloudflared', ['tunnel', '--url', `http://localhost:${hostPort}`], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    this.liveProcs.add(proc);
+    proc.on('exit', () => this.liveProcs.delete(proc));
 
     const url = await this.waitForUrl(proc).catch((err: unknown) => {
       proc.kill('SIGKILL');
@@ -57,7 +63,7 @@ export class CloudflaredDeployTarget implements DeployTarget {
 
   /** Kill every tunnel — call on bot shutdown so no cloudflared processes leak. */
   async shutdown(): Promise<void> {
-    const procs = [...this.tunnels.values()].map(({ proc }) => proc);
+    const procs = [...this.liveProcs];
     this.tunnels.clear();
     await Promise.all(procs.map((proc) => this.stopTunnel(proc)));
   }

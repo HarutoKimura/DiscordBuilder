@@ -1,6 +1,6 @@
 // Runs one build for a Discord thread: sandbox → codex → result post.
-import { lstatSync, realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { closeSync, constants as fsConstants, fstatSync, openSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, resolve, sep } from 'node:path';
 import { AttachmentBuilder, EmbedBuilder, type ThreadChannel } from 'discord.js';
 import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shared';
 import { LocalDockerSandbox } from '@discordbuilder/sandbox';
@@ -9,6 +9,11 @@ import { ProgressReporter } from './progress.js';
 import { truncateText } from './util.js';
 
 const MAX_SCREENSHOTS = 4;
+const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024; // Discord's default attachment limit
+// The screenshots array is agent-authored and uncapped upstream; bound how many
+// entries we even LOOK at, or a huge array of invalid paths would grind the
+// single bot process through that much synchronous fs work.
+const MAX_SCREENSHOT_CANDIDATES = 16;
 
 export interface BuildJob {
   projectId: string;
@@ -16,6 +21,26 @@ export interface BuildJob {
   prompt: string;
   requestedBy: string;
   thread: ThreadChannel;
+}
+
+interface InFlightBuild {
+  projectId: string;
+  kind: BuildKind;
+  sandbox: LocalDockerSandbox;
+}
+
+// In-flight builds, so bot shutdown can apply the same cleanup policy as the
+// normal failure path: an interrupted INITIAL build's container/volumes are
+// reclaimed (edit builds keep the previous good app running).
+const inFlightBuilds = new Set<InFlightBuild>();
+
+/** Reclaim resources of initial builds interrupted by a bot shutdown. */
+export async function destroyInterruptedInitialBuilds(): Promise<void> {
+  await Promise.all(
+    [...inFlightBuilds]
+      .filter((build) => build.kind === 'initial')
+      .map((build) => build.sandbox.destroyProject(build.projectId).catch(() => {})),
+  );
 }
 
 export async function runBuildInThread(
@@ -28,6 +53,7 @@ export async function runBuildInThread(
   const reporter = new ProgressReporter(status);
 
   let sandbox: LocalDockerSandbox | undefined;
+  let inFlight: InFlightBuild | undefined;
   let handle;
   let result: BuildResultFile;
   try {
@@ -40,6 +66,8 @@ export async function runBuildInThread(
       openaiApiKey: config.openaiApiKey || undefined,
       onLog: (message) => reporter.onLog(message),
     });
+    inFlight = { projectId: job.projectId, kind: job.kind, sandbox };
+    inFlightBuilds.add(inFlight);
     handle = await sandbox.create(job.projectId);
     result = await sandbox.runBuild(
       handle,
@@ -56,7 +84,17 @@ export async function runBuildInThread(
     // container and volumes so retries don't pile up dead resources.
     // (Edit tasks keep theirs: the previous good app is still running.)
     if (job.kind === 'initial') await sandbox?.destroyProject(job.projectId).catch(() => {});
+    // Deregistered only now: the entry must stay visible to shutdown cleanup
+    // for as long as a destroyProject() is still owed.
+    if (inFlight) inFlightBuilds.delete(inFlight);
     return;
+  }
+  // A successful (or partial) build owes no cleanup — deregister right away so
+  // a shutdown during result posting can't destroy a healthy new app. A
+  // failed-status initial build still owes the destroyProject() at the end of
+  // this function, so its entry stays until then.
+  if (inFlight && !(result.status === 'failed' && job.kind === 'initial')) {
+    inFlightBuilds.delete(inFlight);
   }
 
   await reporter.finish(result.status === 'failed' ? '🏗️ ビルドが終了しました(失敗)' : '🏗️ ビルドが完了しました');
@@ -91,6 +129,7 @@ export async function runBuildInThread(
   if (result.status === 'failed' && job.kind === 'initial') {
     await sandbox?.destroyProject(job.projectId).catch(() => {});
   }
+  if (inFlight) inFlightBuilds.delete(inFlight);
 }
 
 async function postResult(
@@ -131,26 +170,39 @@ async function postResult(
     embed.addFields({ name: 'プレビュー', value: truncateText(url, 200) });
   }
 
-  // BUILD_RESULT.json is written by the sandboxed agent and is UNTRUSTED input:
-  // refuse anything outside the project's app dir. The textual check alone is
-  // not enough — appDir is bind-mounted into the container, so the agent can
-  // plant a symlink whose path is inside appRoot but whose target is any host
-  // file (e.g. .env). Reject non-regular files and re-check containment on the
-  // dereferenced real path.
+  // BUILD_RESULT.json is written by the sandboxed agent and is UNTRUSTED input,
+  // and appDir stays bind-mounted into a container whose generated app keeps
+  // running while we upload. A path could be swapped for a symlink to a host
+  // file between a check and the upload (TOCTOU), so the bytes are read through
+  // ONE fd: O_NOFOLLOW rejects symlinks at open, and the same-inode comparison
+  // proves the fd is the file the in-root path currently resolves to.
   const appRoot = realpathSync(appDir);
-  const files = result.screenshots
-    .map((rel) => resolve(appRoot, rel))
-    .filter((p) => {
-      if (!p.startsWith(appRoot + sep)) return false;
-      try {
-        if (!lstatSync(p).isFile()) return false;
-        return realpathSync(p).startsWith(appRoot + sep);
-      } catch {
-        return false; // missing or unreadable — skip
+  const files: AttachmentBuilder[] = [];
+  for (const rel of result.screenshots.slice(0, MAX_SCREENSHOT_CANDIDATES)) {
+    if (files.length >= MAX_SCREENSHOTS) break;
+    const p = resolve(appRoot, rel);
+    if (!p.startsWith(appRoot + sep)) continue;
+    let fd: number | undefined;
+    try {
+      fd = openSync(p, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      const opened = fstatSync(fd);
+      const real = realpathSync(p);
+      const resolved = statSync(real);
+      if (
+        opened.isFile() &&
+        opened.size <= MAX_SCREENSHOT_BYTES &&
+        real.startsWith(appRoot + sep) &&
+        resolved.dev === opened.dev &&
+        resolved.ino === opened.ino
+      ) {
+        files.push(new AttachmentBuilder(readFileSync(fd), { name: basename(p) }));
       }
-    })
-    .slice(0, MAX_SCREENSHOTS)
-    .map((p) => new AttachmentBuilder(p));
+    } catch {
+      // missing, a symlink (O_NOFOLLOW), or unreadable — skip
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  }
 
   await thread.send({ embeds: [embed], files });
 }

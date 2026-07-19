@@ -176,7 +176,19 @@ export class LocalDockerSandbox implements SandboxRunner {
     this.log(`codex exec finished (exit ${exitCode}), events logged to ${logPath}`);
 
     const result = this.readBuildResult(handle, exitCode, stderrTail);
-    await this.ensureServer(handle);
+    // A slow dev-server boot must not discard the build: the result above is
+    // already Codex's real output, and the caller destroys the project when
+    // this method rejects. Degrade to a user-visible note instead.
+    try {
+      await this.ensureServer(handle);
+    } catch (err) {
+      this.log(`dev server probe failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (result.status !== 'failed') {
+        result.notes.push(
+          'プレビューサーバーの起動確認がタイムアウトしました。URLがすぐ開かない場合は、少し待ってから再読み込みしてください。',
+        );
+      }
+    }
     return result;
   }
 

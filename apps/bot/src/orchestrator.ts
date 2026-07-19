@@ -29,6 +29,16 @@ export class BuildQueue {
     this.waiters.shift()?.();
   }
 
+  /** Wait until nothing is active or queued, or until timeoutMs. True = drained. */
+  async drain(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.active > 0 || this.waiters.length > 0 || this.chains.size > 0) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return true;
+  }
+
   enqueue(projectId: string, job: () => Promise<void>): Promise<void> {
     const run = async (): Promise<void> => {
       await this.acquire();
