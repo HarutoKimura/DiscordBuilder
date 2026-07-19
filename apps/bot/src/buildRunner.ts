@@ -57,7 +57,7 @@ export async function runBuildInThread(
   deploy: DeployTarget,
   job: BuildJob,
 ): Promise<BuildResultFile['status']> {
-  const status = await job.thread.send('⏳ ビルドを準備しています…');
+  const status = await job.thread.send('⏳ Preparing the build…');
   const reporter = new ProgressReporter(status);
 
   let sandbox: LocalDockerSandbox | undefined;
@@ -83,10 +83,10 @@ export async function runBuildInThread(
       (event) => reporter.onEvent(event),
     );
   } catch (err) {
-    await reporter.finish('🏗️ ビルドが中断されました');
+    await reporter.finish('🏗️ Build interrupted');
     const message = err instanceof Error ? err.message : String(err);
     await job.thread
-      .send(`❌ ビルドに失敗しました: ${truncateText(message, 500)}\nもう一度 \`/build\` で試すか、管理者に連絡してください。`)
+      .send(`❌ Build failed: ${truncateText(message, 500)}\nTry \`/build\` again, or ping an admin.`)
       .catch(() => {});
     // A failed INITIAL build leaves nothing worth keeping — reclaim the
     // container and volumes so retries don't pile up dead resources.
@@ -105,7 +105,7 @@ export async function runBuildInThread(
     inFlightBuilds.delete(inFlight);
   }
 
-  await reporter.finish(result.status === 'failed' ? '🏗️ ビルドが終了しました(失敗)' : '🏗️ ビルドが完了しました');
+  await reporter.finish(result.status === 'failed' ? '🏗️ Build finished (failed)' : '🏗️ Build finished');
 
   let url: string | undefined;
   if (result.status !== 'failed') {
@@ -114,7 +114,7 @@ export async function runBuildInThread(
     } catch (err) {
       console.error('[bot] deploy register failed:', err instanceof Error ? err.message : err);
       await job.thread
-        .send(`⚠️ アプリはできましたが、公開URLの発行に失敗しました: ${truncateText(err instanceof Error ? err.message : String(err), 300)}`)
+        .send(`⚠️ The app was built, but issuing its public URL failed: ${truncateText(err instanceof Error ? err.message : String(err), 300)}`)
         .catch(() => {});
     }
   }
@@ -127,10 +127,10 @@ export async function runBuildInThread(
     console.error('[bot] result post failed:', err instanceof Error ? err.message : err);
     const fallback =
       result.status === 'failed'
-        ? '❌ ビルドは失敗しました(結果の表示にも失敗しました)。'
+        ? '❌ The build failed (and the result could not be displayed).'
         : url
-          ? `✅ ビルドは完了しています。プレビュー: ${url}`
-          : '✅ ビルドは完了しています(結果の表示に失敗しました)。';
+          ? `✅ The build finished. Preview: ${url}`
+          : '✅ The build finished (but the result could not be displayed).';
     await job.thread.send(fallback).catch(() => {});
   }
 
@@ -157,34 +157,34 @@ async function postResult(
 ): Promise<void> {
   const color = result.status === 'success' ? 0x57f287 : result.status === 'partial' ? 0xfee75c : 0xed4245;
   const title =
-    result.status === 'success' ? '✅ できました!' : result.status === 'partial' ? '🟡 一部できました' : '❌ 失敗しました';
+    result.status === 'success' ? '✅ Done!' : result.status === 'partial' ? '🟡 Partially done' : '❌ Failed';
 
   // Piece budgets keep the combined embed under Discord's 6000-char total:
   // 3000 + 1000 + 800 + ~120 of fixed text.
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
-    .setDescription(truncateText(result.summary.trim() || '(結果の説明がありません)', 3000));
+    .setDescription(truncateText(result.summary.trim() || '(no summary provided)', 3000));
   if (result.changes.length > 0) {
     embed.addFields({
-      name: '変更内容',
+      name: 'Changes',
       value: truncateText(result.changes.map((c) => `• ${c}`).join('\n'), 1000),
     });
   }
   if (result.notes.length > 0) {
     embed.addFields({
-      name: 'メモ',
+      name: 'Notes',
       value: truncateText(result.notes.map((n) => `• ${n}`).join('\n'), 800),
     });
   }
   if (result.dataReset) {
     embed.addFields({
-      name: '⚠️ データリセット',
-      value: 'この変更で、これまでに入力されたデータが削除されました。',
+      name: '⚠️ Data reset',
+      value: 'This change wiped previously entered data.',
     });
   }
   if (result.status !== 'failed' && url) {
-    embed.addFields({ name: 'プレビュー', value: truncateText(url, 200) });
+    embed.addFields({ name: 'Preview', value: truncateText(url, 200) });
   }
 
   // BUILD_RESULT.json is written by the sandboxed agent and is UNTRUSTED input,
@@ -227,7 +227,7 @@ async function postResult(
     url?.startsWith('https://') && result.status !== 'failed'
       ? [
           new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('アプリを開く').setURL(url),
+            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open the app').setURL(url),
           ),
         ]
       : [];

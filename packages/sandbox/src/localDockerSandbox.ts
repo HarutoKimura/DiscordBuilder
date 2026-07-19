@@ -185,7 +185,7 @@ export class LocalDockerSandbox implements SandboxRunner {
       this.log(`dev server probe failed: ${err instanceof Error ? err.message : String(err)}`);
       if (result.status !== 'failed') {
         result.notes.push(
-          'プレビューサーバーの起動確認がタイムアウトしました。URLがすぐ開かない場合は、少し待ってから再読み込みしてください。',
+          'The preview server did not respond in time. If the URL does not open right away, wait a moment and reload.',
         );
       }
     }
