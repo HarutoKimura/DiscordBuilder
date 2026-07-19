@@ -1,9 +1,9 @@
-// M2 entry point: discord.js v14 bot + orchestrator.
-// /build <request> → thread → streamed progress (one edited message) → result + preview URL.
+// Bot entry point: discord.js v14 bot + orchestrator.
+// M2: /build <request> → thread → streamed progress (one edited message) → result + preview URL.
+// M3: thread replies become edit tasks; 👍×2 on the vote message approves the ship.
 //
-// Intents: Guilds only for M2. M3 adds GuildMessages + MessageContent (thread
-// replies as edit tasks — requires the MESSAGE CONTENT toggle in the dev portal)
-// and GuildMessageReactions (👍×2 ship gate).
+// Intents: MessageContent is privileged — it must be enabled under
+// "Privileged Gateway Intents" in the Discord developer portal, or login fails.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -11,10 +11,13 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  Partials,
   REST,
   Routes,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
+  type Message,
+  type ThreadChannel,
 } from 'discord.js';
 import { findRepoRoot, loadConfig, type AppConfig } from '@discordbuilder/shared';
 import { createDeployTarget } from '@discordbuilder/deploy';
@@ -22,6 +25,7 @@ import { BuildQueue } from './orchestrator.js';
 import { ThreadStore } from './threadStore.js';
 import { destroyInterruptedInitialBuilds, runBuildInThread } from './buildRunner.js';
 import { finishAllProgress } from './progress.js';
+import { configureShipGate, handleShipReaction } from './shipGate.js';
 import { truncateText } from './util.js';
 
 const repoRoot = findRepoRoot();
@@ -41,10 +45,14 @@ function loadBotConfig(): AppConfig {
 const config = loadBotConfig();
 const queue = new BuildQueue();
 const threads = new ThreadStore(repoRoot);
-/** Threads whose build is enqueued but not yet started (see handleBuild). */
-const queuedThreads = new Set<import('discord.js').ThreadChannel>();
+/** One token per enqueued-but-not-started build (a thread can hold several). */
+interface QueuedJob {
+  thread: ThreadChannel;
+}
+const queuedJobs = new Set<QueuedJob>();
 // One shared instance so per-project tunnels persist across builds.
 const deploy = createDeployTarget(config.deployMode);
+configureShipGate({ requiredVotes: config.shipApprovalVotes });
 
 const buildCommand = new SlashCommandBuilder()
   .setName('build')
@@ -99,32 +107,94 @@ async function handleBuild(interaction: ChatInputCommandInteraction): Promise<vo
     createdAt: new Date().toISOString(),
   });
 
+  enqueueBuild(projectId, 'initial', prompt, interaction.user.id, thread);
+}
+
+/** Shared tail of both entry points (/build and thread replies). */
+function enqueueBuild(
+  projectId: string,
+  kind: 'initial' | 'edit',
+  prompt: string,
+  requestedBy: string,
+  thread: ThreadChannel,
+): void {
   // Queued-but-not-started builds have no ProgressReporter yet, so shutdown
-  // cleanup can't see them through the usual channels — track their threads
-  // here until the job actually starts.
-  queuedThreads.add(thread);
+  // cleanup can't see them through the usual channels — track one token per
+  // job (NOT per thread: a thread can queue an edit behind its initial build).
+  const token: QueuedJob = { thread };
+  queuedJobs.add(token);
   void queue
-    .enqueue(projectId, () => {
-      queuedThreads.delete(thread);
-      return runBuildInThread(repoRoot, config, deploy, {
-        projectId,
-        kind: 'initial',
-        prompt,
-        requestedBy: interaction.user.id,
-        thread,
-      });
+    .enqueue(projectId, async () => {
+      queuedJobs.delete(token);
+      if (kind === 'edit' && !threads.get(thread.id)) {
+        // The initial build failed (and unbound this thread) while this edit
+        // sat in the queue — the project is gone; don't build a blank slate.
+        await thread
+          .send('⚠️ 最初のビルドが失敗したため、この編集リクエストはキャンセルされました。`/build` からやり直してください。')
+          .catch(() => {});
+        return;
+      }
+      const status = await runBuildInThread(repoRoot, config, deploy, { projectId, kind, prompt, requestedBy, thread });
+      if (kind === 'initial' && status === 'failed') {
+        // The project's container/volumes were just destroyed — unbind the
+        // thread so later replies can't route "edits" at a project that no
+        // longer exists (the failure message already says to retry /build).
+        threads.delete(thread.id);
+      }
     })
     .catch(async (err: unknown) => {
-      queuedThreads.delete(thread);
+      queuedJobs.delete(token);
       const message = err instanceof Error ? err.message : String(err);
       await thread.send(`❌ 予期しないエラー: ${truncateText(message, 500)}`).catch(() => {});
     });
 }
 
+/** M3: any human message in a bound thread is an edit request. */
+async function handleThreadReply(message: Message): Promise<void> {
+  if (message.author.bot) return;
+  const channel = message.channel;
+  if (!channel.isThread()) return;
+  const binding = threads.get(channel.id);
+  if (!binding) return;
+  const prompt = message.content.trim();
+  if (!prompt) return; // attachment-only or empty messages are not edit tasks
+
+  // The ack is best-effort: a failed send must not swallow the edit request
+  // itself. Per-project chaining counts as "waiting" too, not just the global
+  // concurrency cap.
+  const waiting = queue.busy || queue.hasPending(binding.projectId);
+  await channel
+    .send(
+      `✏️ 編集リクエストを受け付けました: **「${truncateText(prompt, 200)}」**` +
+        (waiting ? '\n⏳ ほかのビルドが実行中のため、順番待ちに入ります。' : ''),
+    )
+    .catch(() => {});
+  enqueueBuild(binding.projectId, 'edit', prompt, message.author.id, channel);
+}
+
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.MessageContent,
+  ],
+  // Reaction events can arrive for uncached messages as partials.
+  partials: [Partials.Message, Partials.Reaction, Partials.Channel],
   // User text is echoed into bot messages; never let it ping anyone.
   allowedMentions: { parse: [] },
+});
+
+client.on(Events.MessageCreate, (message) => {
+  void handleThreadReply(message).catch((err: unknown) => {
+    console.error('[bot] thread reply handling failed:', err instanceof Error ? err.message : err);
+  });
+});
+
+client.on(Events.MessageReactionAdd, (reaction, user) => {
+  void handleShipReaction(reaction, user).catch((err: unknown) => {
+    console.error('[bot] ship reaction handling failed:', err instanceof Error ? err.message : err);
+  });
 });
 
 client.once(Events.ClientReady, async (ready) => {
@@ -182,7 +252,7 @@ async function shutdown(signal: string): Promise<void> {
     // Builds still waiting for a queue slot never started a reporter — keep
     // the promise their "順番待ち" message made and tell them explicitly.
     await Promise.all(
-      [...queuedThreads].map((thread) =>
+      [...queuedJobs].map(({ thread }) =>
         thread
           .send('⚠️ Bot の再起動により、順番待ち中のビルドはキャンセルされました。もう一度 `/build` を実行してください。')
           .catch(() => {}),

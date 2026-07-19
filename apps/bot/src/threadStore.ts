@@ -38,6 +38,18 @@ export class ThreadStore {
   set(threadId: string, binding: ThreadBinding): void {
     const all = this.readAll();
     all[threadId] = binding;
+    this.writeAll(all);
+  }
+
+  /** Unbind a thread (e.g. its initial build failed and the project is gone). */
+  delete(threadId: string): void {
+    const all = this.readAll();
+    if (!(threadId in all)) return;
+    delete all[threadId];
+    this.writeAll(all);
+  }
+
+  private writeAll(all: Record<string, ThreadBinding>): void {
     const tmp = this.path + '.tmp';
     writeFileSync(tmp, JSON.stringify(all, null, 2) + '\n');
     renameSync(tmp, this.path);

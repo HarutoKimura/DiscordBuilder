@@ -15,6 +15,12 @@ export class BuildQueue {
     return this.active >= this.maxConcurrent || this.waiters.length > 0;
   }
 
+  /** True when this project already has a job running or queued — a new job
+   * for it chains behind that one regardless of global capacity. */
+  hasPending(projectId: string): boolean {
+    return this.chains.has(projectId);
+  }
+
   private async acquire(): Promise<void> {
     if (this.active < this.maxConcurrent) {
       this.active += 1;

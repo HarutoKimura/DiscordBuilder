@@ -6,6 +6,7 @@ import type { AppConfig, BuildKind, BuildResultFile } from '@discordbuilder/shar
 import { LocalDockerSandbox } from '@discordbuilder/sandbox';
 import type { DeployTarget } from '@discordbuilder/deploy';
 import { ProgressReporter } from './progress.js';
+import { armShipGate } from './shipGate.js';
 import { truncateText } from './util.js';
 
 const MAX_SCREENSHOTS = 4;
@@ -48,7 +49,7 @@ export async function runBuildInThread(
   config: AppConfig,
   deploy: DeployTarget,
   job: BuildJob,
-): Promise<void> {
+): Promise<BuildResultFile['status']> {
   const status = await job.thread.send('⏳ ビルドを準備しています…');
   const reporter = new ProgressReporter(status);
 
@@ -87,7 +88,7 @@ export async function runBuildInThread(
     // Deregistered only now: the entry must stay visible to shutdown cleanup
     // for as long as a destroyProject() is still owed.
     if (inFlight) inFlightBuilds.delete(inFlight);
-    return;
+    return 'failed';
   }
   // A successful (or partial) build owes no cleanup — deregister right away so
   // a shutdown during result posting can't destroy a healthy new app. A
@@ -130,6 +131,15 @@ export async function runBuildInThread(
     await sandbox?.destroyProject(job.projectId).catch(() => {});
   }
   if (inFlight) inFlightBuilds.delete(inFlight);
+
+  // M3 gate: open the 👍 ship vote — but only for a version people can
+  // actually open and review (deploy.register may have failed → no URL).
+  if (result.status !== 'failed' && url) {
+    await armShipGate(job.thread, job.projectId).catch((err: unknown) => {
+      console.error('[bot] ship gate arm failed:', err instanceof Error ? err.message : err);
+    });
+  }
+  return result.status;
 }
 
 async function postResult(
