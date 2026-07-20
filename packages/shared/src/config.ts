@@ -12,8 +12,8 @@ export type DeployMode = 'local' | 'cloudflared';
  * How codex authenticates inside sandbox containers.
  * - 'chatgpt': copy the host's $CODEX_HOME/auth.json (ChatGPT-subscription login)
  *   into the container at creation. Default for development/testing.
- * - 'api-key': pipe OPENAI_API_KEY into `codex login --with-api-key` in the
- *   container. Final/production setup.
+ * - 'api-key': supply OPENAI_API_KEY as CODEX_API_KEY only for each
+ *   non-interactive `codex exec`. Final/production setup.
  */
 export type CodexAuthMode = 'chatgpt' | 'api-key';
 

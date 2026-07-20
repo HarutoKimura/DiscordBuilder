@@ -116,7 +116,8 @@ application is required.
 - macOS with Docker Desktop (the environment used for end-to-end verification)
 - Node.js 22 or newer
 - pnpm 9 (`corepack enable` is sufficient)
-- OpenAI Codex CLI, logged in with `codex login`
+- OpenAI Codex CLI, using either `codex login` or the API-key mode documented
+  below
 
 ```sh
 git clone https://github.com/HarutoKimura/DiscordBuilder.git
@@ -183,6 +184,37 @@ After each successful or partial build with a usable URL, the bot opens a new
 `SANDBOX_MODE` currently supports only `local-docker`. `BASE_DOMAIN` is reserved
 for the planned stable VPS deployment and is not used by the current local or
 quick-tunnel targets.
+
+### Choose a Codex authentication mode
+
+For local development, the default reuses an existing Codex subscription login:
+
+```dotenv
+CODEX_AUTH_MODE=chatgpt
+```
+
+Run `codex login` on the host first. DiscordBuilder copies the host's
+`~/.codex/auth.json` into each sandbox when it starts; it never bind-mounts the
+credential file or commits it to a generated project.
+
+For usage-based API billing, create an API key in the
+[OpenAI Platform dashboard](https://platform.openai.com/api-keys), then set:
+
+```dotenv
+CODEX_AUTH_MODE=api-key
+OPENAI_API_KEY=sk-...
+```
+
+No separate `codex login` is required in API-key mode. For each build,
+DiscordBuilder passes the key over stdin and exposes it as `CODEX_API_KEY` only
+to that single `codex exec` process. The key is not stored in Docker's container
+configuration, command-line arguments, the generated app, or the container
+filesystem. Keep it only in the gitignored `.env` file and never paste it into
+a `/build` request.
+
+API-key runs are charged to the OpenAI Platform account at standard API rates;
+they do not use included ChatGPT plan credits. This follows the official
+[Codex environment-variable guidance](https://learn.chatgpt.com/docs/config-file/environment-variables#authentication-and-network).
 
 ## Data preservation and trust boundaries
 

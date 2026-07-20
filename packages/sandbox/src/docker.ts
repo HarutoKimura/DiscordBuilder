@@ -35,6 +35,8 @@ export interface StreamOptions {
   /** Kill the process after this many ms. */
   timeoutMs?: number;
   onStderrLine?: (line: string) => void;
+  /** Optional bytes written to docker's stdin, then closed. Never logged. */
+  stdin?: string;
 }
 
 /**
@@ -47,8 +49,9 @@ export function dockerStream(
   opts: StreamOptions = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] });
     let timedOut = false;
+    let stdinError: Error | undefined;
     const timer = opts.timeoutMs
       ? setTimeout(() => {
           timedOut = true;
@@ -61,13 +64,22 @@ export function dockerStream(
     const err = createInterface({ input: child.stderr });
     err.on('line', (line) => opts.onStderrLine?.(line));
 
+    child.stdin.on('error', (e: NodeJS.ErrnoException) => {
+      // EPIPE only means the child exited before consuming all input; its
+      // exit code/stderr is the useful error. Other stdin failures are not.
+      if (e.code !== 'EPIPE') stdinError = e;
+    });
+    // Closing an empty pipe is equivalent to the previous ignored stdin (EOF).
+    child.stdin.end(opts.stdin);
+
     child.on('error', (e) => {
       if (timer) clearTimeout(timer);
       reject(e);
     });
     child.on('close', (code) => {
       if (timer) clearTimeout(timer);
-      resolve(timedOut ? -2 : (code ?? -1));
+      if (stdinError) reject(stdinError);
+      else resolve(timedOut ? -2 : (code ?? -1));
     });
   });
 }
