@@ -250,11 +250,11 @@ The golden path has also been exercised end to end on a real Discord server:
 initial build, streamed Codex progress, public phone access, persisted SQLite
 data, multiple thread-driven edits, and reaction-gated approval.
 
-Every non-draft PR to `main` from a branch in this repository is additionally
-reviewed by two split-context Codex reviewer agents through the official
-`openai/codex-action` in the
+Maintainers can apply the `codex-review` label to a non-draft PR from a branch
+in this repository to run two split-context Codex reviewer agents through the
+official `openai/codex-action` in the
 [`adversarial-review` workflow](.github/workflows/adversarial-review.yml). Fork
-PRs are excluded so repository secrets are not exposed to untrusted code. The
+PRs and unlabeled PRs never receive the API secret or start a review. The
 reviewers see only the diff, assume the change is wrong, and must support each
 finding with a concrete failure scenario. Across the development history, this
 process caught 38 confirmed issues, including race conditions, resource leaks,

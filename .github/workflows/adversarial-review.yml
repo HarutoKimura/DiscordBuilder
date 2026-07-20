@@ -1,8 +1,8 @@
-# Split-context adversarial review on every non-draft, same-repository PR, run
-# by the official OpenAI Codex GitHub Action. Fork PRs are excluded so repository
-# secrets are never exposed to untrusted code. The Codex job receives repository
-# read permission and the API key; a separate keyless job posts its final report
-# to the PR.
+# Opt-in split-context adversarial review, run by the official OpenAI Codex
+# GitHub Action. A maintainer starts it by applying the `codex-review` label to
+# a non-draft, same-repository PR. Fork PRs are excluded so repository secrets
+# are never exposed to untrusted code. The Codex job receives repository read
+# permission and the API key; a separate keyless job posts its final report.
 #
 # Required repository secret:
 #   gh secret set OPENAI_API_KEY
@@ -10,7 +10,7 @@ name: Codex Adversarial Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [labeled]
 
 concurrency:
   group: codex-adversarial-review-${{ github.event.pull_request.number }}
@@ -21,6 +21,7 @@ jobs:
     if: >-
       ${{
         !github.event.pull_request.draft &&
+        github.event.label.name == 'codex-review' &&
         github.event.pull_request.head.repo.full_name == github.repository
       }}
     runs-on: ubuntu-latest
