@@ -46,6 +46,44 @@ const CONTAINER_PORT = 3000;
 const DEFAULT_IMAGE = 'discordbuilder-sandbox';
 const DEFAULT_BUILD_TIMEOUT_MS = 25 * 60 * 1000;
 
+interface CodexDockerInvocation {
+  command: string[];
+  stdin?: string;
+}
+
+/** Build the docker command without ever placing an API key in argv. */
+export function buildCodexDockerInvocation(
+  containerName: string,
+  codexArgs: string[],
+  authMode: CodexAuthMode,
+  openaiApiKey?: string,
+): CodexDockerInvocation {
+  if (authMode === 'chatgpt') {
+    return {
+      command: ['exec', '-w', CONTAINER_APP_DIR, containerName, 'codex', ...codexArgs],
+    };
+  }
+  if (!openaiApiKey) throw new Error('CODEX_AUTH_MODE=api-key requires OPENAI_API_KEY');
+  return {
+    command: [
+      'exec',
+      '-i',
+      '-w',
+      CONTAINER_APP_DIR,
+      containerName,
+      // CODEX_API_KEY is officially supported for a single non-interactive
+      // `codex exec`. Read it from stdin so it never appears in argv,
+      // `docker inspect`, or the generated project's environment.
+      'sh',
+      '-c',
+      'IFS= read -r CODEX_API_KEY || exit 1; export CODEX_API_KEY; exec codex "$@"',
+      'sh',
+      ...codexArgs,
+    ],
+    stdin: `${openaiApiKey}\n`,
+  };
+}
+
 export class LocalDockerSandbox implements SandboxRunner {
   private readonly opts: LocalDockerSandboxOptions;
   private readonly store: ProjectStore;
@@ -91,9 +129,6 @@ export class LocalDockerSandbox implements SandboxRunner {
           '-v', 'dbuilder-pnpm-store:/pnpm-store',
           '-e', 'npm_config_store_dir=/pnpm-store',
         ];
-        if (this.opts.codexAuthMode === 'api-key') {
-          args.push('-e', `OPENAI_API_KEY=${this.opts.openaiApiKey}`);
-        }
         args.push(this.opts.image ?? DEFAULT_IMAGE, 'sleep', 'infinity');
         await dockerOk(args);
       }
@@ -114,14 +149,9 @@ export class LocalDockerSandbox implements SandboxRunner {
       await dockerOk(['cp', authPath, `${containerName}:/root/.codex/auth.json`]);
       this.log('codex auth injected (chatgpt subscription mode)');
     } else {
-      const result = await docker([
-        'exec', containerName, 'sh', '-lc',
-        'printenv OPENAI_API_KEY | codex login --with-api-key',
-      ]);
-      if (result.code !== 0) {
-        throw new Error(`codex login --with-api-key failed: ${result.stderr.trim()}`);
-      }
-      this.log('codex auth injected (api-key mode)');
+      // The key is supplied only to each `codex exec` below. Do not persist it
+      // in the container config (`docker run -e`) or its filesystem.
+      this.log('codex auth configured (per-build api-key mode)');
     }
   }
 
@@ -149,17 +179,27 @@ export class LocalDockerSandbox implements SandboxRunner {
     const prompt = composeBuildPrompt(request);
     const stderrTail: string[] = [];
     this.log(`codex exec starting (build #${buildNo}, model ${this.opts.codexModel})`);
+    const codexArgs = [
+      'exec',
+      '--json',
+      '--ephemeral',
+      '--skip-git-repo-check',
+      '-m',
+      this.opts.codexModel,
+      // The Docker container is the external sandbox; codex's own sandbox is redundant here.
+      '--dangerously-bypass-approvals-and-sandbox',
+      '-o',
+      '/workspace/last-message.txt',
+      prompt,
+    ];
+    const invocation = buildCodexDockerInvocation(
+      handle.containerName,
+      codexArgs,
+      this.opts.codexAuthMode,
+      this.opts.openaiApiKey,
+    );
     const exitCode = await dockerStream(
-      [
-        'exec', '-w', CONTAINER_APP_DIR, handle.containerName,
-        'codex', 'exec',
-        '--json', '--ephemeral', '--skip-git-repo-check',
-        '-m', this.opts.codexModel,
-        // The Docker container is the external sandbox; codex's own sandbox is redundant here.
-        '--dangerously-bypass-approvals-and-sandbox',
-        '-o', '/workspace/last-message.txt',
-        prompt,
-      ],
+      invocation.command,
       (line) => {
         appendFileSync(logPath, line + '\n');
         const event = parseCodexEventLine(line);
@@ -167,6 +207,7 @@ export class LocalDockerSandbox implements SandboxRunner {
       },
       {
         timeoutMs: this.opts.buildTimeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS,
+        stdin: invocation.stdin,
         onStderrLine: (line) => {
           stderrTail.push(line);
           if (stderrTail.length > 20) stderrTail.shift();

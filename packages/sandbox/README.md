@@ -28,9 +28,15 @@ Two modes, selected by `CODEX_AUTH_MODE` (see `.env.example`):
   `docker cp` to `/root/.codex/auth.json`, mode 600). Copy — NOT a bind mount:
   parallel containers refresh tokens and would race on a shared file; the host
   file stays canonical and fresh copies go to new containers.
-- **`api-key` (final/production):** run
-  `printenv OPENAI_API_KEY | codex login --with-api-key` at container start
-  (flag verified via `codex login --help`).
+- **`api-key` (final/production):** supply `OPENAI_API_KEY` to each
+  non-interactive run as the officially supported `CODEX_API_KEY`. The key is
+  sent to a small container-side wrapper over stdin and exported only for that
+  `codex exec` process. It is never included in `docker run -e`, command-line
+  arguments, the generated app's environment, or the container filesystem.
+
+The API-key path follows the Codex guidance to scope `CODEX_API_KEY` to a
+single `codex exec` instead of setting it job-wide. API-key usage is billed to
+the OpenAI Platform account rather than consuming ChatGPT subscription credits.
 
 The auth file is a secret: never bake it into the image, never copy it into the
 template directory, never log its contents.
