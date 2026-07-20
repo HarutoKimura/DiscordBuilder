@@ -4,4 +4,3 @@ node_modules/
 dist/
 var/
 .DS_Store
-.claude/settings.local.json

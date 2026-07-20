@@ -27,7 +27,7 @@ nothing else.
 - Match the style and idiom of the surrounding code; TypeScript strict, no
   new `any`.
 - If two findings conflict, or a fix would require changing decided
-  architecture (see `CLAUDE.md`), do not improvise — report it back as
+  architecture (see `AGENTS.md`), do not improvise — report it back as
   blocked with the reason.
 
 ## After editing

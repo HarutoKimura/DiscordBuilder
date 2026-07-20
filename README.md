@@ -250,13 +250,15 @@ The golden path has also been exercised end to end on a real Discord server:
 initial build, streamed Codex progress, public phone access, persisted SQLite
 data, multiple thread-driven edits, and reaction-gated approval.
 
-Every non-draft PR to `main` is additionally reviewed by two split-context,
-adversarial AI reviewers through the
-[`adversarial-review` workflow](.github/workflows/adversarial-review.yml). They
-see only the diff, assume the change is wrong, and must support each finding
-with a concrete failure scenario. That process caught 38 confirmed issues
-during development, including race conditions, resource leaks, and a screenshot
-symlink-exfiltration path.
+Maintainers can apply the `codex-review` label to a non-draft PR from a branch
+in this repository to run two split-context Codex reviewer agents through the
+official `openai/codex-action` in the
+[`adversarial-review` workflow](.github/workflows/adversarial-review.yml). Fork
+PRs and unlabeled PRs never receive the API secret or start a review. The
+reviewers see only the diff, assume the change is wrong, and must support each
+finding with a concrete failure scenario. Across the development history, this
+process caught 38 confirmed issues, including race conditions, resource leaks,
+and a screenshot symlink-exfiltration path.
 
 ## Repository layout
 
@@ -267,6 +269,7 @@ packages/sandbox            Docker lifecycle, Codex execution, event parsing
 packages/deploy             local and Cloudflare quick-tunnel deploy targets
 packages/shared             configuration and shared contracts
 templates/app-template      Codex-editable Next.js + SQLite starting point
+.agents/skills              repository workflows automatically discovered by Codex
 infra/docker                sandbox image
 infra/caddy                 planned stable-domain reverse proxy configuration
 docs/demo                   video script, narration, visual sample, reset runbook

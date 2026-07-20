@@ -41,8 +41,10 @@ verification only.
 If no ref given, auto-detect in this order:
 1. Uncommitted changes exist (`git status --porcelain` non-empty) → review
    `git diff HEAD` plus untracked files.
-2. On a non-main branch → review `main...HEAD`.
-3. Otherwise → review `HEAD~1..HEAD`.
+2. In GitHub Actions with `GITHUB_BASE_REF` set → review
+   `origin/$GITHUB_BASE_REF...HEAD`.
+3. On a non-main branch → review `main...HEAD`.
+4. Otherwise → review `HEAD~1..HEAD`.
 
 Write the full diff to `<scratchpad>/review/diff.patch` and the changed-file
 list to `<scratchpad>/review/files.txt`. Tell the user what scope was chosen
@@ -71,7 +73,7 @@ buys perspective diversity without extra agents.
 contains the diff path, the repo path, and the charter — nothing else. Do not
 include the conversation summary, the task description, the commit message
 rationale, your opinion of the change, or hints about where bugs might be. If
-a reviewer would need the spec to judge intent, it reads CLAUDE.md and the
+a reviewer would need the spec to judge intent, it reads AGENTS.md and the
 code's own names/types/docs, like any cold reviewer would.
 
 ### 3. Merge and verify findings
@@ -112,7 +114,7 @@ no scope creep — and reports per-finding outcomes.
 After any fixes (and even without `--fix`, if the user plans to commit):
 run `pnpm typecheck` at the repo root, and `pnpm test` once tests exist.
 Report gate results plainly, failures included — a red gate is a result, not
-something to soften. For milestone-sized changes, CLAUDE.md rule 3 still
+something to soften. For milestone-sized changes, AGENTS.md rule 3 still
 applies on top of this: the golden path must be run e2e before the milestone
 is called done.
 

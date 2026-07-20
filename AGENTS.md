@@ -1,4 +1,4 @@
-# CLAUDE.md — DiscordBuilder
+# AGENTS.md — DiscordBuilder
 
 ## What this is
 
@@ -15,7 +15,7 @@
 
 ## ⚠️ The runtime agent is Codex — never substitute it
 
-Claude develops **this repository**. The agent that generates apps **at runtime** is always OpenAI Codex (`codex exec`, non-interactive, model GPT-5.6 Sol). This is the heart of the judging criteria. Do not replace the generation engine with Claude or any other model, even temporarily, even for testing shortcuts. Mock the sandbox boundary in tests instead.
+Codex develops **this repository**. The agent that generates apps **at runtime** is always OpenAI Codex (`codex exec`, non-interactive, model GPT-5.6 Sol). This is the heart of the judging criteria. Do not replace the generation engine with another model, even temporarily, even for testing shortcuts. Mock the sandbox boundary in tests instead.
 
 ## Architecture (decided — do not revisit)
 
@@ -46,7 +46,7 @@ Key decisions (fixed):
 
 ```
 /
-├── CLAUDE.md
+├── AGENTS.md
 ├── package.json            # pnpm workspace
 ├── apps/
 │   ├── bot/                # discord.js bot + orchestrator

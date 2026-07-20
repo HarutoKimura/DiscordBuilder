@@ -25,7 +25,7 @@ where laziness was assumed, and interleavings that corrupt shared state.
 
 - Diff under review: `{DIFF_PATH}`
 - Repository root: `{REPO_ROOT}`
-- Project law: `CLAUDE.md` at the repo root (architecture decisions,
+- Project law: `AGENTS.md` at the repo root (architecture decisions,
   development rules). If the diff touches `templates/app-template/`, also read
   `templates/app-template/AGENTS.md` — it defines which areas the runtime
   agent may edit.
