@@ -98,7 +98,7 @@ Prerequisites: Docker Desktop, Node.js 22 + pnpm, `codex` CLI (logged in),
 git clone https://github.com/HarutoKimura/DiscordBuilder && cd DiscordBuilder
 pnpm install
 cp .env.example .env    # fill in DISCORD_BOT_TOKEN / DISCORD_CLIENT_ID
-docker build -t discordbuilder-sandbox infra/docker
+docker build -t discordbuilder-sandbox -f infra/docker/sandbox.Dockerfile infra/docker
 pnpm dev                # starts the bot + orchestrator
 ```
 
