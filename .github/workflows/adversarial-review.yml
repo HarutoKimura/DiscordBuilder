@@ -1,86 +1,119 @@
-# Adversarial review on every PR, run by Claude inside GitHub Actions.
+# Split-context adversarial review on every non-draft, same-repository PR, run
+# by the official OpenAI Codex GitHub Action. Fork PRs are excluded so repository
+# secrets are never exposed to untrusted code. The Codex job receives repository
+# read permission and the API key; a separate keyless job posts its final report
+# to the PR.
 #
-# Reuses the repo's split-context review skill
-# (.claude/skills/adversarial-review) in review-only mode: two independent
-# reviewer subagents see ONLY the diff, findings are merged/verified, and the
-# result is posted as a single PR comment.
-#
-# Auth: the CLAUDE_CODE_OAUTH_TOKEN repository secret — a Claude
-# subscription OAuth token minted with `claude setup-token`, then stored via
-# `gh secret set CLAUDE_CODE_OAUTH_TOKEN`. Runs on non-draft PRs when opened,
-# reopened, or marked ready — not on every push (add "synchronize" to types
-# if you want that, at higher cost).
-name: Adversarial Review
+# Required repository secret:
+#   gh secret set OPENAI_API_KEY
+name: Codex Adversarial Review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
-  group: adversarial-review-${{ github.event.pull_request.number }}
+  group: codex-adversarial-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   review:
-    if: ${{ !github.event.pull_request.draft }}
+    if: >-
+      ${{
+        !github.event.pull_request.draft &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
-      id-token: write
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
+      reviewed_head_sha: ${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
-          # Full history so the base...head diff resolves.
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: anthropics/claude-code-action@v1
-        # claude-code-action#676: the token passed via `with:` can be cleared
-        # between the action's prepare and execute phases, so the Claude
-        # subprocess starts unauthenticated and dies on its first API call.
-        # Passing it via env as well keeps the subprocess authenticated.
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - name: Run Codex adversarial review
+        id: run_codex
+        uses: openai/codex-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Surface the underlying API error when a run dies with
-          # is_error:true — the default log hides Claude's stream output.
-          show_full_output: true
-          prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
-            BASE: ${{ github.event.pull_request.base.ref }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          model: gpt-5.6-sol
+          effort: high
+          prompt-file: .github/codex/prompts/adversarial-review.md
+          codex-args: '["--ephemeral"]'
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          output-file: codex-review.md
 
-            Run this repository's adversarial-review skill
-            (.claude/skills/adversarial-review/SKILL.md) on this pull request,
-            review-only (never --fix, never push). Scope the diff as
-            origin/${{ github.event.pull_request.base.ref }}...HEAD.
+  post_review:
+    runs-on: ubuntu-latest
+    needs: review
+    if: ${{ needs.review.outputs.final_message != '' }}
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Post Codex review to the pull request
+        uses: actions/github-script@v7
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.review.outputs.final_message }}
+          CODEX_REVIEWED_HEAD_SHA: ${{ needs.review.outputs.reviewed_head_sha }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const marker = '<!-- codex-adversarial-review -->';
+            const issueNumber = context.payload.pull_request.number;
+            const reviewedHeadSha = process.env.CODEX_REVIEWED_HEAD_SHA;
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: issueNumber,
+            });
 
-            Follow the skill exactly, including the split-context rule: the
-            reviewer subagents get only the diff path, the repo path, and the
-            reviewer charter — do not tell them anything about this PR's
-            title, description, or purpose.
+            if (pullRequest.head.sha !== reviewedHeadSha) {
+              core.notice(
+                `Skipping stale Codex review for ${reviewedHeadSha}; current head is ${pullRequest.head.sha}.`,
+              );
+              return;
+            }
 
-            CRITICAL for this CI environment: this is a non-interactive run.
-            Background agents will NOT re-invoke you when they finish — if you
-            end your turn while reviewers are still running, the process exits
-            and their work is lost. Spawn every reviewer agent with
-            run_in_background: false so the call blocks until its result
-            returns (the two reviewers still run in parallel when both calls
-            are in the same message). Never end your turn before the PR
-            comment is posted.
+            const body = [
+              marker,
+              '## Codex adversarial review',
+              '',
+              `Reviewed head: \`${reviewedHeadSha}\``,
+              '',
+              process.env.CODEX_FINAL_MESSAGE,
+            ].join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            const existingComment = comments.find(
+              (comment) =>
+                comment.user?.login === 'github-actions[bot]' &&
+                comment.body?.includes(marker),
+            );
 
-            When findings are merged, post the report as ONE comment on the PR
-            with `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`:
-            - scope reviewed and both reviewers' coverage
-            - findings ranked most-severe first as
-              `file:line — summary — failure scenario — verdict (CONFIRMED/PLAUSIBLE)`
-            - if nothing survived, say NO_FINDINGS and where the reviewers dug
-            Do not post more than one comment.
-          # Task is the legacy name of the Agent (subagent) tool — allow both
-          # so the skill's reviewer fan-out works across CLI versions.
-          claude_args: >-
-            --verbose
-            --allowedTools
-            "Read,Grep,Glob,Write,Agent,Task,Bash(git:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(mkdir:*),Bash(cat:*),Bash(wc:*)"
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body,
+              });
+            }
